@@ -1,0 +1,6 @@
+{
+  "name": "Habit Tracker",
+  "description": "A feature-rich native Android Habit Tracker app. Built with Kotlin, Jetpack Compose, Room Database, custom calendar widgets, and notifications.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
