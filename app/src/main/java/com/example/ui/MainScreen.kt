@@ -39,6 +39,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.data.Habit
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.time.YearMonth
@@ -189,7 +191,7 @@ fun MainHabitApp(viewModel: HabitViewModel) {
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
-                    icon = { Icon(Icons.Default.Settings, contentDescription = "Архив") },
+                    icon = { Icon(painter = painterResource(R.drawable.ic_archive_books), contentDescription = "Архив") },
                     label = { Text("Архив") }
                 )
             }
@@ -854,7 +856,7 @@ fun CalendarCard(completions: List<com.example.data.HabitCompletion>) {
             val currentMonth = YearMonth.now()
             
             Text(
-                "Календарь за ${currentMonth.month.getDisplayName(TextStyle.FULL_STANDALONE, Locale("ru")).replaceFirstChar { it.uppercase() }} ${currentMonth.year}",
+                "Календарь за ${currentMonth.month.getDisplayName(TextStyle.FULL_STANDALONE, Locale.forLanguageTag("ru")).replaceFirstChar { it.uppercase() }} ${currentMonth.year}",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = if (isDark) Color.White else Color(0xFF1B1B1F)
@@ -1354,7 +1356,7 @@ fun AddEditHabitDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 // Actions Save/Cancel buttons
                 Row(
