@@ -508,100 +508,101 @@ fun HabitCardItem(
             defaultElevation = if (completed) 0.dp else 1.dp
         )
     ) {
-        Column(
-            modifier = Modifier.padding(20.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(start = 20.dp, top = 26.dp, end = 20.dp, bottom = 20.dp)
             ) {
-                // Emoji Icon bubble (rounded-2xl)
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(emojiBgColor)
-                        .then(
-                            if (completed && !isDark) {
-                                Modifier.border(0.5.dp, Color(0xFFE2E8F0), RoundedCornerShape(14.dp))
-                            } else {
-                                Modifier
-                            }
-                        ),
-                    contentAlignment = Alignment.Center
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = item.habit.emoji, fontSize = 24.sp)
-                }
-
-                Spacer(modifier = Modifier.width(16.dp))
-
-                Column(
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        text = item.habit.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = titleColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "Серия: ${item.currentStreak} дн." + if (item.currentStreak > 0) " 🔥" else "",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = if (completed) FontWeight.Bold else FontWeight.Medium,
-                        color = seriesTextColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                // Action controls matching interactive mockup
-                if (completed) {
-                    IconButton(
-                        onClick = { onToggle(false) },
+                    // Emoji Icon bubble (rounded-2xl)
+                    Box(
                         modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF34A853))
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(emojiBgColor)
+                            .then(
+                                if (completed && !isDark) {
+                                    Modifier.border(0.5.dp, Color(0xFFE2E8F0), RoundedCornerShape(14.dp))
+                                } else {
+                                    Modifier
+                                }
+                            ),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = "Отметить выполненное",
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
+                        Text(text = item.habit.emoji, fontSize = 24.sp)
                     }
-                } else {
-                    Button(
-                        onClick = { onToggle(true) },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF4285F4),
-                            contentColor = Color.White
-                        ),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                        modifier = Modifier.height(36.dp),
-                        shape = RoundedCornerShape(18.dp)
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    Column(
+                        modifier = Modifier.weight(1f)
                     ) {
                         Text(
-                            text = "Выполнить",
+                            text = item.habit.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = titleColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Серия: ${item.currentStreak} дн." + if (item.currentStreak > 0) " 🔥" else "",
                             style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = if (completed) FontWeight.Bold else FontWeight.Medium,
+                            color = seriesTextColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
-                }
 
-                // Menu Trigger
-                IconButton(onClick = { showMenu = !showMenu }) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "Меню",
-                        tint = if (isDark) Color.LightGray else Color.Gray
-                    )
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false }
-                    ) {
+                    // Action controls matching interactive mockup
+                    if (completed) {
+                        IconButton(
+                            onClick = { onToggle(false) },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF34A853))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Отметить выполненное",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    } else {
+                        Button(
+                            onClick = { onToggle(true) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF4285F4),
+                                contentColor = Color.White
+                            ),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                            modifier = Modifier.height(36.dp),
+                            shape = RoundedCornerShape(18.dp)
+                        ) {
+                            Text(
+                                text = "Выполнить",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    // Menu Trigger
+                    IconButton(onClick = { showMenu = !showMenu }) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "Меню",
+                            tint = if (isDark) Color.LightGray else Color.Gray
+                        )
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
                         DropdownMenuItem(
                             text = { Text("Редактировать") },
                             leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
@@ -686,7 +687,41 @@ fun HabitCardItem(
                 }
             )
         }
+
+        if (item.habit.notifyEnabled) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 10.dp, end = 14.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (isDark) Color(0xFF2C2218) else Color(0xFFFFF7ED))
+                    .border(
+                        width = 1.dp,
+                        color = if (isDark) Color(0xFFE65100).copy(alpha = 0.3f) else Color(0xFFFFE3B3),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Alarm,
+                    contentDescription = "Напоминание установлено",
+                    tint = if (isDark) Color(0xFFFF9800) else Color(0xFFE65100),
+                    modifier = Modifier.size(12.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                val timeFormattedStr = String.format(Locale.getDefault(), "%02d:%02d", item.habit.notifyHour, item.habit.notifyMinute)
+                Text(
+                    text = timeFormattedStr,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isDark) Color(0xFFFF9800) else Color(0xFFE65100)
+                )
+            }
+        }
     }
+}
 }
 
 // --- TAB 2: STATISTICS & DIAGRAMS ---
