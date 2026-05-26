@@ -1070,6 +1070,7 @@ fun AddEditHabitDialog(
     var notifyEnabled by remember { mutableStateOf(habit?.notifyEnabled ?: false) }
     var notifyHour by remember { mutableStateOf(habit?.notifyHour ?: 8) }
     var notifyMinute by remember { mutableStateOf(habit?.notifyMinute ?: 0) }
+    var showTimePicker by remember { mutableStateOf(false) }
 
     val emojis = listOf("💧", "🏃‍♂️", "📚", "🧘", "💊", "🛏️", "🥗", "🎸", "🧹", "🎯")
     val daysOfWeekRu = listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
@@ -1248,112 +1249,69 @@ fun AddEditHabitDialog(
                 }
 
                 if (notifyEnabled) {
-                    // Time selector
-                    Column(
+                    // Interactive Time selection trigger block
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
                             .background(if (isSystemInDarkTheme()) Color(0xFF1E1F22) else Color(0xFFF8F9FF))
-                            .padding(14.dp)
+                            .border(1.dp, if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.05f) else Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
+                            .clickable { showTimePicker = true }
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(
-                            "Выберите время напоминания",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isSystemInDarkTheme()) Color.LightGray else Color(0xFF64748B)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            var showHourDropdown by remember { mutableStateOf(false) }
-                            var showMinuteDropdown by remember { mutableStateOf(false) }
-                            
-                            // Hours Card Selectable
-                            Box {
-                                Row(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(if (isSystemInDarkTheme()) Color(0xFF2B2D31) else Color(0xFFFFFFFF))
-                                        .border(1.dp, if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.1f) else Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
-                                        .clickable { showHourDropdown = true }
-                                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = String.format(Locale.US, "%02d", notifyHour),
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 18.sp
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(20.dp), tint = Color.Gray)
-                                }
-                                DropdownMenu(
-                                    expanded = showHourDropdown,
-                                    onDismissRequest = { showHourDropdown = false },
-                                    modifier = Modifier.heightIn(max = 240.dp)
-                                ) {
-                                    (0..23).forEach { hour ->
-                                        DropdownMenuItem(
-                                            text = { Text(String.format(Locale.US, "%02d часов", hour)) },
-                                            onClick = {
-                                                notifyHour = hour
-                                                showHourDropdown = false
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-
-                            Text(
-                                text = " : ",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 10.dp)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Notifications,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
                             )
-
-                            // Minutes Card Selectable
-                            Box {
-                                Row(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(if (isSystemInDarkTheme()) Color(0xFF2B2D31) else Color(0xFFFFFFFF))
-                                        .border(1.dp, if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.1f) else Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
-                                        .clickable { showMinuteDropdown = true }
-                                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = String.format(Locale.US, "%02d", notifyMinute),
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 18.sp
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(20.dp), tint = Color.Gray)
-                                }
-                                DropdownMenu(
-                                    expanded = showMinuteDropdown,
-                                    onDismissRequest = { showMinuteDropdown = false },
-                                    modifier = Modifier.heightIn(max = 240.dp)
-                                ) {
-                                    val minuteOptions = listOf(0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55)
-                                    minuteOptions.forEach { minute ->
-                                        DropdownMenuItem(
-                                            text = { Text(String.format(Locale.US, "%02d мин", minute)) },
-                                            onClick = {
-                                                notifyMinute = minute
-                                                showMinuteDropdown = false
-                                            }
-                                        )
-                                    }
-                                }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    "Время напоминания",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (isSystemInDarkTheme()) Color.LightGray else Color(0xFF1F2937)
+                                )
+                                Text(
+                                    "Нажмите, чтобы настроить",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (isSystemInDarkTheme()) Color.Gray else Color(0xFF64748B)
+                                )
                             }
                         }
+                        
+                        val timeFormatted = String.format(Locale.getDefault(), "%02d:%02d", notifyHour, notifyMinute)
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.primaryContainer)
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = timeFormatted,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
                     }
+                }
+
+                if (showTimePicker) {
+                    HabitTimePickerDialog(
+                        initialHour = notifyHour,
+                        initialMinute = notifyMinute,
+                        onDismissRequest = { showTimePicker = false },
+                        onConfirm = { h, m ->
+                            notifyHour = h
+                            notifyMinute = m
+                            showTimePicker = false
+                        }
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -1387,6 +1345,210 @@ fun AddEditHabitDialog(
                         }
                     ) {
                         Text("Сохранить")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun HabitTimePickerDialog(
+    initialHour: Int,
+    initialMinute: Int,
+    onDismissRequest: () -> Unit,
+    onConfirm: (hour: Int, minute: Int) -> Unit
+) {
+    var hour by remember { mutableStateOf(initialHour) }
+    var minute by remember { mutableStateOf(initialMinute) }
+
+    Dialog(onDismissRequest = onDismissRequest) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .clip(RoundedCornerShape(24.dp)),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isSystemInDarkTheme()) Color(0xFF1E1F22) else Color(0xFFFFFFFF)
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(24.dp)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Время напоминания",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isSystemInDarkTheme()) Color.White else Color(0xFF1F2937)
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Time picker visual block
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    // Hour selector column
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        IconButton(
+                            onClick = { hour = (hour + 1) % 24 },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(if (isSystemInDarkTheme()) Color(0xFF2B2D31) else Color(0xFFF3F4F6))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowUp,
+                                contentDescription = "Прибавить час",
+                                tint = if (isSystemInDarkTheme()) Color.White else Color(0xFF1F2937)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .width(80.dp)
+                                .height(80.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (isSystemInDarkTheme()) Color(0xFF2B2D31) else Color(0xFFF3F4F6))
+                                .border(1.dp, if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.1f) else Color(0xFFE5E7EB), RoundedCornerShape(16.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = String.format(Locale.US, "%02d", hour),
+                                style = MaterialTheme.typography.headlineLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSystemInDarkTheme()) Color.White else Color(0xFF1F2937)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        IconButton(
+                            onClick = { hour = if (hour == 0) 23 else hour - 1 },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(if (isSystemInDarkTheme()) Color(0xFF2B2D31) else Color(0xFFF3F4F6))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Убавить час",
+                                tint = if (isSystemInDarkTheme()) Color.White else Color(0xFF1F2937)
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = ":",
+                        style = MaterialTheme.typography.headlineLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isSystemInDarkTheme()) Color.LightGray else Color(0xFF4B5563),
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+
+                    // Minute selector column
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        IconButton(
+                            onClick = { minute = (minute + 1) % 60 },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(if (isSystemInDarkTheme()) Color(0xFF2B2D31) else Color(0xFFF3F4F6))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowUp,
+                                contentDescription = "Прибавить минуту",
+                                tint = if (isSystemInDarkTheme()) Color.White else Color(0xFF1F2937)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .width(80.dp)
+                                .height(80.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (isSystemInDarkTheme()) Color(0xFF2B2D31) else Color(0xFFF3F4F6))
+                                .border(1.dp, if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.1f) else Color(0xFFE5E7EB), RoundedCornerShape(16.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = String.format(Locale.US, "%02d", minute),
+                                style = MaterialTheme.typography.headlineLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSystemInDarkTheme()) Color.White else Color(0xFF1F2937)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        IconButton(
+                            onClick = { minute = if (minute == 0) 59 else minute - 1 },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(if (isSystemInDarkTheme()) Color(0xFF2B2D31) else Color(0xFFF3F4F6))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Убавить минуту",
+                                tint = if (isSystemInDarkTheme()) Color.White else Color(0xFF1F2937)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Quick offset buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    listOf(-15, -5, 5, 15).forEach { offset ->
+                        val sign = if (offset > 0) "+$offset" else "$offset"
+                        SuggestionChip(
+                            onClick = {
+                                val newMin = (minute + offset) % 60
+                                minute = if (newMin < 0) newMin + 60 else newMin
+                            },
+                            label = { Text(sign, style = MaterialTheme.typography.bodySmall) }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Actions
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismissRequest) {
+                        Text("Отмена", color = if (isSystemInDarkTheme()) Color.LightGray else Color(0xFF4B5563))
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Button(
+                        onClick = { onConfirm(hour, minute) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Text("Выбрать")
                     }
                 }
             }
