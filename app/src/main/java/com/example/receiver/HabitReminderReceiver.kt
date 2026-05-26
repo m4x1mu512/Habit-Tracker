@@ -35,6 +35,9 @@ class HabitReminderReceiver : BroadcastReceiver() {
 
                 if (habitId != -1L) {
                     val habit = db.habitDao().getHabitById(habitId)
+                    if (habit != null && !habit.isArchived && habit.notifyEnabled) {
+                        scheduleHabitReminder(context, habit)
+                    }
                     val completions = db.habitDao().getCompletionsForHabit(habitId)
                     val isCompletedToday = completions.any { it.dateStr == todayStr }
 
@@ -56,6 +59,7 @@ class HabitReminderReceiver : BroadcastReceiver() {
                         }
                     }
                 } else {
+                    scheduleDailyReminder(context)
                     val habits = db.habitDao().getAllHabits().first()
                     val completions = db.habitDao().getAllCompletionsFlow().first()
                     
@@ -126,6 +130,52 @@ class HabitReminderReceiver : BroadcastReceiver() {
     }
 
     companion object {
+        private fun setExactAlarm(alarmManager: AlarmManager, triggerAtMillis: Long, pendingIntent: PendingIntent) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    if (alarmManager.canScheduleExactAlarms()) {
+                        alarmManager.setExactAndAllowWhileIdle(
+                            AlarmManager.RTC_WAKEUP,
+                            triggerAtMillis,
+                            pendingIntent
+                        )
+                    } else {
+                        alarmManager.setAndAllowWhileIdle(
+                            AlarmManager.RTC_WAKEUP,
+                            triggerAtMillis,
+                            pendingIntent
+                        )
+                    }
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    alarmManager.setExactAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerAtMillis,
+                        pendingIntent
+                    )
+                } else {
+                    alarmManager.setExact(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerAtMillis,
+                        pendingIntent
+                    )
+                }
+            } catch (e: SecurityException) {
+                Log.e("HabitReminder", "SecurityException scheduling exact alarm, falling back", e)
+                alarmManager.set(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerAtMillis,
+                    pendingIntent
+                )
+            } catch (e: Exception) {
+                Log.e("HabitReminder", "Failed to set alarm", e)
+                alarmManager.set(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerAtMillis,
+                    pendingIntent
+                )
+            }
+        }
+
         fun scheduleDailyReminder(context: Context) {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             val intent = Intent(context, HabitReminderReceiver::class.java)
@@ -149,13 +199,8 @@ class HabitReminderReceiver : BroadcastReceiver() {
             }
 
             try {
-                alarmManager.setInexactRepeating(
-                    AlarmManager.RTC_WAKEUP,
-                    calendar.timeInMillis,
-                    AlarmManager.INTERVAL_DAY,
-                    pendingIntent
-                )
-                Log.d("HabitReminder", "Daily alarm scheduled for 8:00 AM. Next run at: ${calendar.time}")
+                setExactAlarm(alarmManager, calendar.timeInMillis, pendingIntent)
+                Log.d("HabitReminder", "Daily exact alarm scheduled for 8:00 AM. Next run at: ${calendar.time}")
             } catch (e: Exception) {
                 Log.e("HabitReminder", "Failed to schedule Alarm", e)
             }
@@ -192,13 +237,8 @@ class HabitReminderReceiver : BroadcastReceiver() {
             }
 
             try {
-                alarmManager.setInexactRepeating(
-                    AlarmManager.RTC_WAKEUP,
-                    calendar.timeInMillis,
-                    AlarmManager.INTERVAL_DAY,
-                    pendingIntent
-                )
-                Log.d("HabitReminder", "Scheduled alarm for habit ${habit.id} (${habit.name}) at ${habit.notifyHour}:${habit.notifyMinute}")
+                setExactAlarm(alarmManager, calendar.timeInMillis, pendingIntent)
+                Log.d("HabitReminder", "Scheduled exact alarm for habit ${habit.id} (${habit.name}) at ${habit.notifyHour}:${habit.notifyMinute}")
             } catch (e: Exception) {
                 Log.e("HabitReminder", "Failed to schedule Alarm for habit ${habit.id}", e)
             }

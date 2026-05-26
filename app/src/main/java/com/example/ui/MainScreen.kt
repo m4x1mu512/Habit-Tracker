@@ -47,6 +47,17 @@ import java.time.YearMonth
 import java.time.format.TextStyle
 import java.util.*
 import kotlin.random.Random
+import android.provider.Settings
+import android.net.Uri
+import androidx.compose.ui.platform.LocalContext
+import android.content.Context
+import android.app.AlarmManager
+import android.os.Build
+import android.content.Intent
+import android.util.Log
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 // --- CONFETTI PHYSICS ENGINE ---
 data class Particle(
@@ -119,6 +130,36 @@ fun MainHabitApp(viewModel: HabitViewModel) {
     val archivedHabits by viewModel.archivedHabitsWithStats.collectAsState()
     val completions by viewModel.allCompletions.collectAsState()
     val overallStats by viewModel.overallStats.collectAsState()
+
+    val context = LocalContext.current
+    var hasExactAlarmPermission by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                alarmManager.canScheduleExactAlarms()
+            } else {
+                true
+            }
+        )
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasExactAlarmPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                    alarmManager.canScheduleExactAlarms()
+                } else {
+                    true
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     var selectedTab by remember { mutableStateOf(0) } // 0 = Habits, 1 = Stats, 2 = Archive
     var showAddEditDialog by remember { mutableStateOf(false) }
@@ -220,29 +261,36 @@ fun MainHabitApp(viewModel: HabitViewModel) {
             // Main Content Area based on Selected Tab
             Crossfade(targetState = selectedTab, label = "tabTransition") { tab ->
                 when (tab) {
-                    0 -> HabitsTabContent(
-                        habits = activeHabits,
-                        onToggle = { item, checked ->
-                            viewModel.toggleCompletionToday(item.habit, checked)
-                            // Play Confetti if checking completed AND new/current streak achieves >= 7 days!
-                            if (checked) {
-                                val potentialStreak = item.currentStreak + (if (!item.isCompletedToday) 1 else 0)
-                                if (potentialStreak >= 7) {
-                                    confettiState.trigger()
-                                }
+                    0 -> Column(modifier = Modifier.fillMaxSize()) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !hasExactAlarmPermission) {
+                            ExactAlarmPermissionBanner(context) {
+                                hasExactAlarmPermission = true
                             }
-                        },
-                        onEdit = { habit ->
-                            habitToEdit = habit
-                            showAddEditDialog = true
-                        },
-                        onArchive = { habit ->
-                            viewModel.archiveHabit(habit, true)
-                        },
-                        onDeleteRequest = { habit ->
-                            habitToDelete = habit
                         }
-                    )
+                        HabitsTabContent(
+                            habits = activeHabits,
+                            onToggle = { item, checked ->
+                                viewModel.toggleCompletionToday(item.habit, checked)
+                                // Play Confetti if checking completed AND new/current streak achieves >= 7 days!
+                                if (checked) {
+                                    val potentialStreak = item.currentStreak + (if (!item.isCompletedToday) 1 else 0)
+                                    if (potentialStreak >= 7) {
+                                        confettiState.trigger()
+                                    }
+                                }
+                            },
+                            onEdit = { habit ->
+                                habitToEdit = habit
+                                showAddEditDialog = true
+                            },
+                            onArchive = { habit ->
+                                viewModel.archiveHabit(habit, true)
+                            },
+                            onDeleteRequest = { habit ->
+                                habitToDelete = habit
+                            }
+                        )
+                    }
                     1 -> StatisticsTabContent(
                         overallStats = overallStats,
                         activeHabits = activeHabits,
@@ -1550,6 +1598,86 @@ fun HabitTimePickerDialog(
                     ) {
                         Text("Выбрать")
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ExactAlarmPermissionBanner(
+    context: Context,
+    onPermissionGranted: () -> Unit
+) {
+    val isDark = isSystemInDarkTheme()
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isDark) Color(0xFF3B1E1E) else Color(0xFFFDE8E8)
+        ),
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (isDark) Color(0xFF9B2C2C).copy(alpha = 0.4f) else Color(0xFFF8B4B4)
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = "Предупреждение",
+                tint = if (isDark) Color(0xFFF8B4B4) else Color(0xFF9B2C2C),
+                modifier = Modifier.size(28.dp)
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Разрешите точные напоминания",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isDark) Color(0xFFFDE8E8) else Color(0xFF9B2C2C)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Чтобы напоминания приходили строго вовремя, приложению требуется системное разрешение на показ точных будильников.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isDark) Color(0xFFF8B4B4) else Color(0xFF7F1D1D)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                    data = Uri.parse("package:${context.packageName}")
+                                }
+                                context.startActivity(intent)
+                            }
+                        } catch (e: Exception) {
+                            try {
+                                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = Uri.parse("package:${context.packageName}")
+                                }
+                                context.startActivity(intent)
+                            } catch (ex: Exception) {
+                                Log.e("HabitTracker", "Failed to open settings", ex)
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isDark) Color(0xFF9B2C2C) else Color(0xFFE02424),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Text("Предоставить разрешение", style = MaterialTheme.typography.labelMedium)
                 }
             }
         }
