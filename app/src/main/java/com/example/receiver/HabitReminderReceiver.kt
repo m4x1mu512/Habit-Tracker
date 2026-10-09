@@ -103,15 +103,18 @@ class HabitReminderReceiver : BroadcastReceiver() {
 
     private fun showNotification(context: Context, notificationId: Int, title: String, content: String) {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channelId = "habit_reminder_channel"
+        val channelId = "habit_reminder_channel_v2"
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
                 "Напоминания о привычках",
-                NotificationManager.IMPORTANCE_DEFAULT
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Ежедневные уведомления о невыполненных привычках"
+                description = "Точные уведомления о привычках"
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 350, 200, 350)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
             notificationManager.createNotificationChannel(channel)
         }
@@ -133,13 +136,41 @@ class HabitReminderReceiver : BroadcastReceiver() {
             .setStyle(NotificationCompat.BigTextStyle().bigText(content))
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .build()
 
         notificationManager.notify(notificationId, notification)
     }
 
     companion object {
-        private fun setExactAlarm(alarmManager: AlarmManager, triggerAtMillis: Long, pendingIntent: PendingIntent) {
+        private fun setExactAlarm(context: Context, alarmManager: AlarmManager, triggerAtMillis: Long, pendingIntent: PendingIntent) {
+            val showIntent = PendingIntent.getActivity(
+                context,
+                0,
+                Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            // Primary: setAlarmClock guarantees second-level precision, bypasses Doze batching,
+            // and does not require SCHEDULE_EXACT_ALARM permission.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                try {
+                    alarmManager.setAlarmClock(
+                        AlarmManager.AlarmClockInfo(triggerAtMillis, showIntent),
+                        pendingIntent
+                    )
+                    Log.d("HabitReminder", "Exact alarm clock set successfully for millis: $triggerAtMillis")
+                    return
+                } catch (e: Exception) {
+                    Log.w("HabitReminder", "setAlarmClock failed, trying fallback", e)
+                }
+            }
+
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     if (alarmManager.canScheduleExactAlarms()) {
@@ -169,12 +200,20 @@ class HabitReminderReceiver : BroadcastReceiver() {
                     )
                 }
             } catch (e: SecurityException) {
-                Log.e("HabitReminder", "SecurityException scheduling exact alarm, falling back", e)
-                alarmManager.set(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerAtMillis,
-                    pendingIntent
-                )
+                Log.e("HabitReminder", "SecurityException scheduling exact alarm, falling back to setAndAllowWhileIdle", e)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    alarmManager.setAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerAtMillis,
+                        pendingIntent
+                    )
+                } else {
+                    alarmManager.set(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerAtMillis,
+                        pendingIntent
+                    )
+                }
             } catch (e: Exception) {
                 Log.e("HabitReminder", "Failed to set alarm", e)
                 alarmManager.set(
@@ -208,7 +247,7 @@ class HabitReminderReceiver : BroadcastReceiver() {
             }
 
             try {
-                setExactAlarm(alarmManager, calendar.timeInMillis, pendingIntent)
+                setExactAlarm(context, alarmManager, calendar.timeInMillis, pendingIntent)
                 Log.d("HabitReminder", "Daily exact alarm scheduled for 8:00 AM. Next run at: ${calendar.time}")
             } catch (e: Exception) {
                 Log.e("HabitReminder", "Failed to schedule Alarm", e)
@@ -250,7 +289,7 @@ class HabitReminderReceiver : BroadcastReceiver() {
             }
 
             try {
-                setExactAlarm(alarmManager, calendar.timeInMillis, pendingIntent)
+                setExactAlarm(context, alarmManager, calendar.timeInMillis, pendingIntent)
                 Log.d("HabitReminder", "Scheduled exact alarm for habit ${habit.id} (${habit.name}) at ${habit.notifyHour}:${habit.notifyMinute}")
             } catch (e: Exception) {
                 Log.e("HabitReminder", "Failed to schedule Alarm for habit ${habit.id}", e)
