@@ -33,15 +33,21 @@ class HabitReminderReceiver : BroadcastReceiver() {
                 val todayStr = LocalDate.now().toString()
                 val todayDayOfWeek = LocalDate.now().dayOfWeek.value // 1..7 (Mon..Sun)
 
+                val isExpiredHabit: (Habit) -> Boolean = { h ->
+                    h.endDate != null && try {
+                        LocalDate.now().isAfter(LocalDate.parse(h.endDate))
+                    } catch (e: Exception) { false }
+                }
+
                 if (habitId != -1L) {
                     val habit = db.habitDao().getHabitById(habitId)
-                    if (habit != null && !habit.isArchived && habit.notifyEnabled) {
+                    if (habit != null && !habit.isArchived && habit.notifyEnabled && !isExpiredHabit(habit)) {
                         scheduleHabitReminder(context, habit)
                     }
                     val completions = db.habitDao().getCompletionsForHabit(habitId)
                     val isCompletedToday = completions.any { it.dateStr == todayStr }
 
-                    if (habit != null && !habit.isArchived && habit.notifyEnabled && !isCompletedToday) {
+                    if (habit != null && !habit.isArchived && habit.notifyEnabled && !isCompletedToday && !isExpiredHabit(habit)) {
                         val activeToday = if (habit.frequency == "DAILY") {
                             true
                         } else {
@@ -64,7 +70,10 @@ class HabitReminderReceiver : BroadcastReceiver() {
                     val completions = db.habitDao().getAllCompletionsFlow().first()
                     
                     val incompleteNotifyHabits = habits.filter { habit ->
-                        !habit.isArchived && habit.notifyEnabled && !completions.any { it.habitId == habit.id && it.dateStr == todayStr }
+                        val isExpired = habit.endDate != null && try {
+                            LocalDate.now().isAfter(LocalDate.parse(habit.endDate))
+                        } catch (e: Exception) { false }
+                        !habit.isArchived && habit.notifyEnabled && !isExpired && !completions.any { it.habitId == habit.id && it.dateStr == todayStr }
                     }.filter { habit ->
                         if (habit.frequency == "DAILY") {
                             true
@@ -218,7 +227,11 @@ class HabitReminderReceiver : BroadcastReceiver() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            if (!habit.notifyEnabled || habit.isArchived) {
+            val isExpired = habit.endDate != null && try {
+                LocalDate.now().isAfter(LocalDate.parse(habit.endDate))
+            } catch (e: Exception) { false }
+
+            if (!habit.notifyEnabled || habit.isArchived || isExpired) {
                 alarmManager.cancel(pendingIntent)
                 Log.d("HabitReminder", "Cancelled alarm for habit ${habit.id}")
                 return

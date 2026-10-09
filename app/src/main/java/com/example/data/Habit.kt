@@ -14,7 +14,9 @@ data class Habit(
     val notifyEnabled: Boolean = false,
     val notifyHour: Int = 8,
     val notifyMinute: Int = 0,
-    val isArchived: Boolean = false
+    val isArchived: Boolean = false,
+    val startDate: String? = null, // "YYYY-MM-DD"
+    val endDate: String? = null    // "YYYY-MM-DD" (null = бессрочно)
 )
 
 @Entity(tableName = "habit_completions", primaryKeys = ["habitId", "dateStr"])

@@ -42,15 +42,16 @@ class HabitViewModel(
     // Overall stats
     val overallStats: StateFlow<OverallStats> = activeHabitWithStats.map { activeHabits ->
         if (activeHabits.isEmpty()) {
-            OverallStats(0, 0, 0, 0f)
+            OverallStats(0, 0, 0, 0f, 0)
         } else {
             val total = activeHabits.size
             val bestStreak = activeHabits.maxOfOrNull { it.bestStreak } ?: 0
             val currentStreak = activeHabits.maxOfOrNull { it.currentStreak } ?: 0
             val avgWeekProgress = activeHabits.map { it.weekProgress }.average().toFloat()
-            OverallStats(total, bestStreak, currentStreak, avgWeekProgress)
+            val achievedCount = activeHabits.count { it.isGoalAchieved }
+            OverallStats(total, bestStreak, currentStreak, avgWeekProgress, achievedCount)
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), OverallStats(0, 0, 0, 0f))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), OverallStats(0, 0, 0, 0f, 0))
 
     // DB Operations
     fun addHabit(
@@ -61,7 +62,9 @@ class HabitViewModel(
         targetDays: List<Int>,
         notifyEnabled: Boolean,
         notifyHour: Int,
-        notifyMinute: Int
+        notifyMinute: Int,
+        startDate: String? = null,
+        endDate: String? = null
     ) {
         viewModelScope.launch {
             val targetDaysStr = targetDays.sorted().joinToString(",")
@@ -73,7 +76,9 @@ class HabitViewModel(
                 targetDays = targetDaysStr,
                 notifyEnabled = notifyEnabled,
                 notifyHour = notifyHour,
-                notifyMinute = notifyMinute
+                notifyMinute = notifyMinute,
+                startDate = startDate ?: LocalDate.now().toString(),
+                endDate = endDate
             )
             val newId = repository.insertHabit(habit)
             val insertedHabit = habit.copy(id = newId)
@@ -91,7 +96,9 @@ class HabitViewModel(
         notifyEnabled: Boolean,
         notifyHour: Int,
         notifyMinute: Int,
-        isArchived: Boolean
+        isArchived: Boolean,
+        startDate: String? = null,
+        endDate: String? = null
     ) {
         viewModelScope.launch {
             val targetDaysStr = targetDays.sorted().joinToString(",")
@@ -105,7 +112,9 @@ class HabitViewModel(
                 notifyEnabled = notifyEnabled,
                 notifyHour = notifyHour,
                 notifyMinute = notifyMinute,
-                isArchived = isArchived
+                isArchived = isArchived,
+                startDate = startDate,
+                endDate = endDate
             )
             repository.updateHabit(habit)
             HabitReminderReceiver.scheduleHabitReminder(getApplication(), habit)
@@ -122,6 +131,18 @@ class HabitViewModel(
     fun archiveHabit(habit: Habit, archive: Boolean) {
         viewModelScope.launch {
             val updated = habit.copy(isArchived = archive)
+            repository.updateHabit(updated)
+            HabitReminderReceiver.scheduleHabitReminder(getApplication(), updated)
+        }
+    }
+
+    fun updateHabitReminderTime(habit: Habit, hour: Int, minute: Int) {
+        viewModelScope.launch {
+            val updated = habit.copy(
+                notifyEnabled = true,
+                notifyHour = hour,
+                notifyMinute = minute
+            )
             repository.updateHabit(updated)
             HabitReminderReceiver.scheduleHabitReminder(getApplication(), updated)
         }
@@ -237,12 +258,60 @@ class HabitViewModel(
             0.0f
         }
 
+        val isGoalAchieved = habit.endDate?.let { endStr ->
+            try {
+                val end = LocalDate.parse(endStr)
+                today.isAfter(end)
+            } catch (e: Exception) {
+                false
+            }
+        } ?: false
+
+        val daysRemaining: Long? = habit.endDate?.let { endStr ->
+            try {
+                val end = LocalDate.parse(endStr)
+                if (today.isAfter(end)) 0L else java.time.temporal.ChronoUnit.DAYS.between(today, end)
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        val totalGoalDays: Long? = if (habit.startDate != null && habit.endDate != null) {
+            try {
+                val start = LocalDate.parse(habit.startDate)
+                val end = LocalDate.parse(habit.endDate)
+                val days = java.time.temporal.ChronoUnit.DAYS.between(start, end) + 1
+                if (days > 0) days else 1L
+            } catch (e: Exception) {
+                null
+            }
+        } else null
+
+        val goalProgress: Float? = if (totalGoalDays != null && habit.startDate != null && habit.endDate != null) {
+            try {
+                val start = LocalDate.parse(habit.startDate)
+                val end = LocalDate.parse(habit.endDate)
+                if (today.isBefore(start)) 0f
+                else if (today.isAfter(end)) 1f
+                else {
+                    val passed = java.time.temporal.ChronoUnit.DAYS.between(start, today)
+                    (passed.toFloat() / totalGoalDays).coerceIn(0f, 1f)
+                }
+            } catch (e: Exception) {
+                null
+            }
+        } else null
+
         return HabitWithStats(
             habit = habit,
             currentStreak = currentStreak,
             bestStreak = bestStreak,
             weekProgress = weekProgress,
-            isCompletedToday = isCompletedToday
+            isCompletedToday = isCompletedToday,
+            isGoalAchieved = isGoalAchieved,
+            daysRemaining = daysRemaining,
+            totalGoalDays = totalGoalDays,
+            goalProgress = goalProgress
         )
     }
 
@@ -275,14 +344,19 @@ data class HabitWithStats(
     val currentStreak: Int,
     val bestStreak: Int,
     val weekProgress: Float, // 0.0f to 1.0f
-    val isCompletedToday: Boolean
+    val isCompletedToday: Boolean,
+    val isGoalAchieved: Boolean = false,
+    val daysRemaining: Long? = null,
+    val totalGoalDays: Long? = null,
+    val goalProgress: Float? = null
 )
 
 data class OverallStats(
     val totalHabits: Int,
     val bestStreak: Int,
     val currentStreak: Int,
-    val weekProgressPercentage: Float // 0.0f to 1.0f
+    val weekProgressPercentage: Float, // 0.0f to 1.0f
+    val achievedGoalsCount: Int = 0
 )
 
 // Factory

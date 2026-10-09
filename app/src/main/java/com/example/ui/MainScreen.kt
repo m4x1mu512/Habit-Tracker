@@ -6,7 +6,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -39,11 +38,17 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.Habit
 import androidx.compose.ui.res.painterResource
 import com.example.R
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.BorderStroke
 import java.time.LocalDate
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.time.YearMonth
 import java.time.format.TextStyle
 import java.util.*
@@ -51,8 +56,6 @@ import kotlin.random.Random
 import android.provider.Settings
 import android.net.Uri
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.input.pointer.pointerInput
 import android.content.Context
 import android.app.AlarmManager
 import android.os.Build
@@ -61,6 +64,13 @@ import android.util.Log
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.testTag
+import kotlinx.coroutines.launch
+import kotlin.math.absoluteValue
 
 // --- CONFETTI PHYSICS ENGINE ---
 data class Particle(
@@ -164,12 +174,22 @@ fun MainHabitApp(viewModel: HabitViewModel) {
         }
     }
 
-    var selectedTab by remember { mutableStateOf(0) } // 0 = Habits, 1 = Stats, 2 = Archive
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 3 })
+    val coroutineScope = rememberCoroutineScope()
+
+    // Handle back button on secondary screens
+    BackHandler(enabled = pagerState.currentPage != 0) {
+        coroutineScope.launch {
+            pagerState.animateScrollToPage(0, animationSpec = tween(350, easing = FastOutSlowInEasing))
+        }
+    }
+
     var showAddEditDialog by remember { mutableStateOf(false) }
     var habitToEdit by remember { mutableStateOf<Habit?>(null) }
     
     // Deletion Confirmation Dialog
     var habitToDelete by remember { mutableStateOf<Habit?>(null) }
+    var quickReminderHabit by remember { mutableStateOf<Habit?>(null) }
 
     // Confetti manager
     val confettiState = remember { ConfettiState() }
@@ -187,22 +207,37 @@ fun MainHabitApp(viewModel: HabitViewModel) {
     val isDark = isSystemInDarkTheme()
     val navBorderCol = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0)
     val navBgCol = if (isDark) Color(0xFF131416) else Color(0xFFFFFFFF)
-    val swipeThresholdPx = with(LocalDensity.current) { 72.dp.toPx() }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = when (selectedTab) {
-                            0 -> "Мои привычки"
-                            1 -> "Статистика"
-                            else -> "Архив"
+                    AnimatedContent(
+                        targetState = pagerState.currentPage,
+                        transitionSpec = {
+                            if (targetState > initialState) {
+                                (slideInHorizontally { width -> width / 3 } + fadeIn(tween(250))).togetherWith(
+                                    slideOutHorizontally { width -> -width / 3 } + fadeOut(tween(200))
+                                )
+                            } else {
+                                (slideInHorizontally { width -> -width / 3 } + fadeIn(tween(250))).togetherWith(
+                                    slideOutHorizontally { width -> width / 3 } + fadeOut(tween(200))
+                                )
+                            }
                         },
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 24.sp,
-                        color = if (isDark) Color.White else Color(0xFF1B1B1F)
-                    )
+                        label = "titleTransition"
+                    ) { pageIndex ->
+                        Text(
+                            text = when (pageIndex) {
+                                0 -> "Мои привычки"
+                                1 -> "Статистика"
+                                else -> "Архив"
+                            },
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 24.sp,
+                            color = if (isDark) Color.White else Color(0xFF1B1B1F)
+                        )
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background
@@ -222,27 +257,52 @@ fun MainHabitApp(viewModel: HabitViewModel) {
                 }
             ) {
                 NavigationBarItem(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
+                    selected = pagerState.currentPage == 0,
+                    onClick = {
+                        if (pagerState.currentPage != 0) {
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(0, animationSpec = tween(350, easing = FastOutSlowInEasing))
+                            }
+                        }
+                    },
                     icon = { Icon(Icons.Default.Home, contentDescription = "Привычки") },
-                    label = { Text("Привычки") }
+                    label = { Text("Привычки") },
+                    modifier = Modifier.testTag("nav_tab_habits")
                 )
                 NavigationBarItem(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
+                    selected = pagerState.currentPage == 1,
+                    onClick = {
+                        if (pagerState.currentPage != 1) {
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(1, animationSpec = tween(350, easing = FastOutSlowInEasing))
+                            }
+                        }
+                    },
                     icon = { Icon(Icons.Default.DateRange, contentDescription = "Статистика") },
-                    label = { Text("Статистика") }
+                    label = { Text("Статистика") },
+                    modifier = Modifier.testTag("nav_tab_stats")
                 )
                 NavigationBarItem(
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
+                    selected = pagerState.currentPage == 2,
+                    onClick = {
+                        if (pagerState.currentPage != 2) {
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(2, animationSpec = tween(350, easing = FastOutSlowInEasing))
+                            }
+                        }
+                    },
                     icon = { Icon(painter = painterResource(R.drawable.ic_archive_books), contentDescription = "Архив") },
-                    label = { Text("Архив") }
+                    label = { Text("Архив") },
+                    modifier = Modifier.testTag("nav_tab_archive")
                 )
             }
         },
         floatingActionButton = {
-            if (selectedTab == 0) {
+            AnimatedVisibility(
+                visible = pagerState.currentPage == 0,
+                enter = scaleIn(animationSpec = tween(220)) + fadeIn(animationSpec = tween(220)),
+                exit = scaleOut(animationSpec = tween(180)) + fadeOut(animationSpec = tween(180))
+            ) {
                 FloatingActionButton(
                     onClick = {
                         habitToEdit = null
@@ -250,7 +310,8 @@ fun MainHabitApp(viewModel: HabitViewModel) {
                     },
                     containerColor = Color(0xFF4285F4),
                     contentColor = Color.White,
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.testTag("add_habit_fab")
                 ) {
                     Icon(Icons.Default.Add, contentDescription = "Добавить привычку", modifier = Modifier.size(28.dp))
                 }
@@ -261,71 +322,76 @@ fun MainHabitApp(viewModel: HabitViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .pointerInput(selectedTab, swipeThresholdPx) {
-                    var horizontalDrag = 0f
-                    detectHorizontalDragGestures(
-                        onHorizontalDrag = { change, dragAmount ->
-                            change.consume()
-                            horizontalDrag += dragAmount
-                        },
-                        onDragEnd = {
-                            when {
-                                horizontalDrag <= -swipeThresholdPx && selectedTab < 2 -> selectedTab++
-                                horizontalDrag >= swipeThresholdPx && selectedTab > 0 -> selectedTab--
-                            }
-                            horizontalDrag = 0f
-                        },
-                        onDragCancel = { horizontalDrag = 0f }
-                    )
-                }
         ) {
-            // Main Content Area based on Selected Tab
-            Crossfade(targetState = selectedTab, label = "tabTransition") { tab ->
-                when (tab) {
-                    0 -> Column(modifier = Modifier.fillMaxSize()) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !hasExactAlarmPermission) {
-                            ExactAlarmPermissionBanner(context) {
-                                hasExactAlarmPermission = true
-                            }
+            // Main Content Area with smooth swipe and finger tracking
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                beyondViewportPageCount = 1
+            ) { page ->
+                val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+                val absOffset = pageOffset.absoluteValue.coerceIn(0f, 1f)
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            // Depth and layering: subtle scale & alpha so adjacent screen is beautifully visible
+                            val scale = 1f - (absOffset * 0.04f)
+                            scaleX = scale
+                            scaleY = scale
+                            alpha = 1f - (absOffset * 0.2f)
                         }
-                        HabitsTabContent(
-                            habits = activeHabits,
-                            onToggle = { item, checked ->
-                                viewModel.toggleCompletionToday(item.habit, checked)
-                                // Play Confetti if checking completed AND new/current streak achieves >= 7 days!
-                                if (checked) {
-                                    val potentialStreak = item.currentStreak + (if (!item.isCompletedToday) 1 else 0)
-                                    if (potentialStreak >= 7) {
-                                        confettiState.trigger()
-                                    }
+                ) {
+                    when (page) {
+                        0 -> Column(modifier = Modifier.fillMaxSize()) {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !hasExactAlarmPermission) {
+                                ExactAlarmPermissionBanner(context) {
+                                    hasExactAlarmPermission = true
                                 }
-                            },
-                            onEdit = { habit ->
-                                habitToEdit = habit
-                                showAddEditDialog = true
-                            },
-                            onArchive = { habit ->
-                                viewModel.archiveHabit(habit, true)
+                            }
+                            HabitsTabContent(
+                                habits = activeHabits,
+                                onToggle = { item, checked ->
+                                    viewModel.toggleCompletionToday(item.habit, checked)
+                                    // Play Confetti if checking completed AND new/current streak achieves >= 7 days!
+                                    if (checked) {
+                                        val potentialStreak = item.currentStreak + (if (!item.isCompletedToday) 1 else 0)
+                                        if (potentialStreak >= 7) {
+                                            confettiState.trigger()
+                                        }
+                                    }
+                                },
+                                onEdit = { habit ->
+                                    habitToEdit = habit
+                                    showAddEditDialog = true
+                                },
+                                onEditTime = { habit ->
+                                    quickReminderHabit = habit
+                                },
+                                onArchive = { habit ->
+                                    viewModel.archiveHabit(habit, true)
+                                },
+                                onDeleteRequest = { habit ->
+                                    habitToDelete = habit
+                                }
+                            )
+                        }
+                        1 -> StatisticsTabContent(
+                            overallStats = overallStats,
+                            activeHabits = activeHabits,
+                            completions = completions
+                        )
+                        2 -> ArchiveTabContent(
+                            archivedHabits = archivedHabits,
+                            onUnarchive = { habit ->
+                                viewModel.archiveHabit(habit, false)
                             },
                             onDeleteRequest = { habit ->
                                 habitToDelete = habit
                             }
                         )
                     }
-                    1 -> StatisticsTabContent(
-                        overallStats = overallStats,
-                        activeHabits = activeHabits,
-                        completions = completions
-                    )
-                    2 -> ArchiveTabContent(
-                        archivedHabits = archivedHabits,
-                        onUnarchive = { habit ->
-                            viewModel.archiveHabit(habit, false)
-                        },
-                        onDeleteRequest = { habit ->
-                            habitToDelete = habit
-                        }
-                    )
                 }
             }
 
@@ -352,9 +418,9 @@ fun MainHabitApp(viewModel: HabitViewModel) {
         AddEditHabitDialog(
             habit = habitToEdit,
             onDismiss = { showAddEditDialog = false },
-            onSave = { name, desc, emoji, freq, targetDays, notify, hour, minute ->
+            onSave = { name, desc, emoji, freq, targetDays, notify, hour, minute, startDate, endDate ->
                 if (habitToEdit == null) {
-                    viewModel.addHabit(name, desc, emoji, freq, targetDays, notify, hour, minute)
+                    viewModel.addHabit(name, desc, emoji, freq, targetDays, notify, hour, minute, startDate, endDate)
                 } else {
                     viewModel.updateHabit(
                         id = habitToEdit!!.id,
@@ -366,7 +432,9 @@ fun MainHabitApp(viewModel: HabitViewModel) {
                         notifyEnabled = notify,
                         notifyHour = hour,
                         notifyMinute = minute,
-                        isArchived = habitToEdit!!.isArchived
+                        isArchived = habitToEdit!!.isArchived,
+                        startDate = startDate,
+                        endDate = endDate
                     )
                 }
                 showAddEditDialog = false
@@ -398,6 +466,19 @@ fun MainHabitApp(viewModel: HabitViewModel) {
             }
         )
     }
+
+    // Quick Reminder Dial Picker Dialog for habit from list
+    quickReminderHabit?.let { habit ->
+        HabitTimePickerDialog(
+            initialHour = habit.notifyHour,
+            initialMinute = habit.notifyMinute,
+            onDismissRequest = { quickReminderHabit = null },
+            onConfirm = { hour, minute ->
+                viewModel.updateHabitReminderTime(habit, hour, minute)
+                quickReminderHabit = null
+            }
+        )
+    }
 }
 
 // --- TAB 1: PASSIVE/ACTIVE HABITS ---
@@ -406,6 +487,7 @@ fun HabitsTabContent(
     habits: List<HabitWithStats>,
     onToggle: (HabitWithStats, Boolean) -> Unit,
     onEdit: (Habit) -> Unit,
+    onEditTime: (Habit) -> Unit,
     onArchive: (Habit) -> Unit,
     onDeleteRequest: (Habit) -> Unit
 ) {
@@ -453,6 +535,7 @@ fun HabitsTabContent(
                     item = item,
                     onToggle = { checked -> onToggle(item, checked) },
                     onEdit = { onEdit(item.habit) },
+                    onEditTime = { onEditTime(item.habit) },
                     onArchive = { onArchive(item.habit) },
                     onDelete = { onDeleteRequest(item.habit) }
                 )
@@ -467,6 +550,7 @@ fun HabitCardItem(
     item: HabitWithStats,
     onToggle: (Boolean) -> Unit,
     onEdit: () -> Unit,
+    onEditTime: () -> Unit,
     onArchive: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -474,19 +558,27 @@ fun HabitCardItem(
     val isDark = isSystemInDarkTheme()
 
     val completed = item.isCompletedToday
-    val containerColor = if (completed) {
+    val isAchieved = item.isGoalAchieved
+
+    val containerColor = if (isAchieved) {
+        if (isDark) Color(0xFF1E211A) else Color(0xFFFBFDFB)
+    } else if (completed) {
         if (isDark) Color(0xFF0F2615) else Color(0xFFF2FAF5)
     } else {
         if (isDark) Color(0xFF1E1F22) else Color(0xFFFFFFFF)
     }
 
-    val borderColor = if (completed) {
+    val borderColor = if (isAchieved) {
+        if (isDark) Color(0xFFF59E0B).copy(alpha = 0.5f) else Color(0xFFF59E0B).copy(alpha = 0.4f)
+    } else if (completed) {
         if (isDark) Color(0xFF34A853).copy(alpha = 0.3f) else Color(0xFF34A853).copy(alpha = 0.2f)
     } else {
         if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0)
     }
 
-    val emojiBgColor = if (completed) {
+    val emojiBgColor = if (isAchieved) {
+        if (isDark) Color(0xFF352B14) else Color(0xFFFEF3C7)
+    } else if (completed) {
         if (isDark) Color(0xFF1B3B23) else Color(0xFFFFFFFF)
     } else {
         val hashCodeId = item.habit.name.hashCode() % 3
@@ -507,7 +599,9 @@ fun HabitCardItem(
 
     val titleColor = if (isDark) Color(0xFFE8EAED) else Color(0xFF1B1B1F)
 
-    val seriesTextColor = if (completed) {
+    val seriesTextColor = if (isAchieved) {
+        if (isDark) Color(0xFFFBBF24) else Color(0xFFB45309)
+    } else if (completed) {
         if (isDark) Color(0xFF81C995) else Color(0xFF34A853)
     } else {
         if (isDark) Color.Gray else Color(0xFF64748B)
@@ -518,7 +612,7 @@ fun HabitCardItem(
             .fillMaxWidth()
             .clip(RoundedCornerShape(28.dp))
             .border(
-                width = 1.dp,
+                width = if (isAchieved) 1.5.dp else 1.dp,
                 color = borderColor,
                 shape = RoundedCornerShape(28.dp)
             ),
@@ -526,13 +620,47 @@ fun HabitCardItem(
             containerColor = containerColor
         ),
         elevation = CardDefaults.cardElevation(
-            defaultElevation = if (completed) 0.dp else 1.dp
+            defaultElevation = if (completed || isAchieved) 0.dp else 1.dp
         )
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
             Column(
-                modifier = Modifier.padding(start = 20.dp, top = 26.dp, end = 20.dp, bottom = 20.dp)
+                modifier = Modifier.padding(start = 20.dp, top = 22.dp, end = 20.dp, bottom = 20.dp)
             ) {
+                // Goal Achieved celebratory banner
+                if (isAchieved) {
+                    Row(
+                        modifier = Modifier
+                            .padding(bottom = 12.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isDark) Color(0xFF3A2D06) else Color(0xFFFEF3C7))
+                            .border(
+                                width = 1.dp,
+                                color = if (isDark) Color(0xFFF59E0B).copy(alpha = 0.6f) else Color(0xFFFDE68A),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "🏆", fontSize = 13.sp)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Цель достигнута",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isDark) Color(0xFFFBBF24) else Color(0xFFB45309)
+                        )
+                        item.habit.endDate?.let { endStr ->
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "• завершено $endStr",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isDark) Color(0xFFFBBF24).copy(alpha = 0.75f) else Color(0xFFB45309).copy(alpha = 0.75f)
+                            )
+                        }
+                    }
+                }
+
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -569,17 +697,75 @@ fun HabitCardItem(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Серия: ${item.currentStreak} дн." + if (item.currentStreak > 0) " 🔥" else "",
+                            text = if (isAchieved) {
+                                "Цель выполнена • Серия: ${item.bestStreak} дн. 🏅"
+                            } else {
+                                "Серия: ${item.currentStreak} дн." + if (item.currentStreak > 0) " 🔥" else ""
+                            },
                             style = MaterialTheme.typography.bodySmall,
-                            fontWeight = if (completed) FontWeight.Bold else FontWeight.Medium,
+                            fontWeight = if (completed || isAchieved) FontWeight.Bold else FontWeight.Medium,
                             color = seriesTextColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        if (!isAchieved && item.habit.endDate != null) {
+                            val daysLeft = item.daysRemaining ?: 0L
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .padding(top = 4.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isDark) Color(0xFF1E293B) else Color(0xFFEFF6FF))
+                                    .border(0.5.dp, if (isDark) Color(0xFF3B82F6).copy(alpha = 0.3f) else Color(0xFFBFDBFE), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CalendarMonth,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (daysLeft == 0L) "Последний день срока!" else "Осталось: $daysLeft ${getDaysPlural(daysLeft)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
                     }
 
                     // Action controls matching interactive mockup
-                    if (completed) {
+                    if (isAchieved) {
+                        // Inactive status badge replacing button
+                        Surface(
+                            shape = RoundedCornerShape(18.dp),
+                            color = if (isDark) Color(0xFF382A07) else Color(0xFFFEF3C7),
+                            border = BorderStroke(1.dp, if (isDark) Color(0xFFF59E0B).copy(alpha = 0.5f) else Color(0xFFFDE68A)),
+                            modifier = Modifier.height(36.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 12.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Цель достигнута",
+                                    tint = if (isDark) Color(0xFFFBBF24) else Color(0xFFB45309),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Цель достигнута",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isDark) Color(0xFFFBBF24) else Color(0xFFB45309)
+                                )
+                            }
+                        }
+                    } else if (completed) {
                         IconButton(
                             onClick = { onToggle(false) },
                             modifier = Modifier
@@ -624,6 +810,25 @@ fun HabitCardItem(
                             expanded = showMenu,
                             onDismissRequest = { showMenu = false }
                         ) {
+                        if (isAchieved) {
+                            DropdownMenuItem(
+                                text = { Text("Продлить / изменить срок") },
+                                leadingIcon = { Icon(Icons.Default.DateRange, contentDescription = null, tint = Color(0xFFF59E0B)) },
+                                onClick = {
+                                    showMenu = false
+                                    onEdit()
+                                }
+                            )
+                        } else {
+                            DropdownMenuItem(
+                                text = { Text("Время напоминания") },
+                                leadingIcon = { Icon(Icons.Default.Alarm, contentDescription = null, tint = Color(0xFFFF9800)) },
+                                onClick = {
+                                    showMenu = false
+                                    onEditTime()
+                                }
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text("Редактировать") },
                             leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
@@ -721,21 +926,22 @@ fun HabitCardItem(
                         color = if (isDark) Color(0xFFE65100).copy(alpha = 0.3f) else Color(0xFFFFE3B3),
                         shape = RoundedCornerShape(8.dp)
                     )
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                    .clickable { onEditTime() }
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
                     imageVector = Icons.Default.Alarm,
-                    contentDescription = "Напоминание установлено",
+                    contentDescription = "Напоминание: нажмите для настройки времени",
                     tint = if (isDark) Color(0xFFFF9800) else Color(0xFFE65100),
-                    modifier = Modifier.size(12.dp)
+                    modifier = Modifier.size(13.dp)
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 val timeFormattedStr = String.format(Locale.getDefault(), "%02d:%02d", item.habit.notifyHour, item.habit.notifyMinute)
                 Text(
                     text = timeFormattedStr,
                     style = MaterialTheme.typography.labelSmall,
-                    fontSize = 10.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = if (isDark) Color(0xFFFF9800) else Color(0xFFE65100)
                 )
@@ -789,6 +995,16 @@ fun StatisticsTabContent(
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     StatBox(value = "${overallStats.bestStreak} дн.", label = "Лучшая серия", modifier = Modifier.weight(1f))
                     StatBox(value = "${(overallStats.weekProgressPercentage * 100).toInt()}%", label = "Прогресс за неделю", modifier = Modifier.weight(1f))
+                }
+                if (overallStats.achievedGoalsCount > 0) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        StatBox(
+                            value = "${overallStats.achievedGoalsCount} 🏆",
+                            label = "Достигнуто целей",
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             }
         }
@@ -1160,7 +1376,18 @@ fun ArchiveTabContent(
 fun AddEditHabitDialog(
     habit: Habit?,
     onDismiss: () -> Unit,
-    onSave: (name: String, desc: String?, emoji: String, frequency: String, targetDays: List<Int>, notify: Boolean, notifyHour: Int, notifyMinute: Int) -> Unit
+    onSave: (
+        name: String,
+        desc: String?,
+        emoji: String,
+        frequency: String,
+        targetDays: List<Int>,
+        notify: Boolean,
+        notifyHour: Int,
+        notifyMinute: Int,
+        startDate: String?,
+        endDate: String?
+    ) -> Unit
 ) {
     var name by remember { mutableStateOf(habit?.name ?: "") }
     var description by remember { mutableStateOf(habit?.description ?: "") }
@@ -1170,6 +1397,17 @@ fun AddEditHabitDialog(
     // Day selections for Specific Days (1..7 matching Mon..Sun)
     val parsedDays = habit?.targetDays?.split(",")?.mapNotNull { it.trim().toIntOrNull() } ?: listOf(1, 2, 3, 4, 5, 6, 7)
     var targetDays by remember { mutableStateOf(parsedDays.toSet()) }
+
+    val today = remember { LocalDate.now() }
+    var isIndefinite by remember { mutableStateOf(habit?.endDate == null) }
+    var targetEndDate by remember {
+        mutableStateOf(
+            habit?.endDate?.let {
+                try { LocalDate.parse(it) } catch (e: Exception) { null }
+            } ?: today.plusDays(21)
+        )
+    }
+    var showDatePicker by remember { mutableStateOf(false) }
 
     var notifyEnabled by remember { mutableStateOf(habit?.notifyEnabled ?: false) }
     var notifyHour by remember { mutableStateOf(habit?.notifyHour ?: 8) }
@@ -1327,6 +1565,145 @@ fun AddEditHabitDialog(
                     }
                 }
 
+                // Goal Duration Selection (Срок активности привычки)
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Срок действия привычки",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        FilterChip(
+                            selected = isIndefinite,
+                            onClick = { isIndefinite = true },
+                            label = { Text("Бессрочно") },
+                            leadingIcon = if (isIndefinite) {
+                                { Icon(Icons.Default.AllInclusive, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            } else null
+                        )
+                        FilterChip(
+                            selected = !isIndefinite,
+                            onClick = { isIndefinite = false },
+                            label = { Text("Выбрать срок") },
+                            leadingIcon = if (!isIndefinite) {
+                                { Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            } else null
+                        )
+                    }
+
+                    if (!isIndefinite) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (isSystemInDarkTheme()) Color(0xFF1E1F22) else Color(0xFFF8F9FF))
+                                .border(1.dp, if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.05f) else Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
+                                .padding(14.dp)
+                        ) {
+                            Text(
+                                text = "Количество дней (быстрый выбор):",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                val presets = listOf(7L to "7 дней", 14L to "14 дней", 21L to "21 день", 30L to "30 дней", 60L to "60 дней", 100L to "100 дней")
+                                presets.forEach { (days, label) ->
+                                    val presetDate = today.plusDays(days)
+                                    val isSelected = targetEndDate == presetDate
+                                    SuggestionChip(
+                                        onClick = { targetEndDate = presetDate },
+                                        label = { Text(label, fontSize = 12.sp) },
+                                        colors = SuggestionChipDefaults.suggestionChipColors(
+                                            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                                            labelColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                        ),
+                                        border = if (isSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            val daysFromToday = ChronoUnit.DAYS.between(today, targetEndDate).coerceAtLeast(0)
+                            val dateFormatterRu = DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.forLanguageTag("ru"))
+                            val formattedDate = targetEndDate.format(dateFormatterRu)
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                                    .clickable { showDatePicker = true }
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.primaryContainer),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CalendarMonth,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = "Активна до: $formattedDate",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = if (daysFromToday == 0L) "Завершается сегодня" else "Срок: $daysFromToday ${getDaysPlural(daysFromToday)}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                                
+                                FilledTonalButton(
+                                    onClick = { showDatePicker = true },
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Text("Календарь", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
+
+                    if (showDatePicker) {
+                        HabitDatePickerDialog(
+                            initialDate = targetEndDate,
+                            onDismissRequest = { showDatePicker = false },
+                            onDateSelected = { pickedDate ->
+                                targetEndDate = pickedDate
+                                showDatePicker = false
+                            }
+                        )
+                    }
+                }
+
                 // Notification toggle Switch
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1381,9 +1758,9 @@ fun AddEditHabitDialog(
                                     color = if (isSystemInDarkTheme()) Color.LightGray else Color(0xFF1F2937)
                                 )
                                 Text(
-                                    "Нажмите, чтобы настроить",
+                                    "Выбрать на циферблате",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = if (isSystemInDarkTheme()) Color.Gray else Color(0xFF64748B)
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
                         }
@@ -1443,7 +1820,9 @@ fun AddEditHabitDialog(
                                     if (frequency == "DAILY") (1..7).toList() else targetDays.toList(),
                                     notifyEnabled,
                                     notifyHour,
-                                    notifyMinute
+                                    notifyMinute,
+                                    habit?.startDate ?: today.toString(),
+                                    if (isIndefinite) null else targetEndDate.toString()
                                 )
                             }
                         }
@@ -1456,6 +1835,78 @@ fun AddEditHabitDialog(
     }
 }
 
+// --- CALENDAR DATE PICKER DIALOG ---
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HabitDatePickerDialog(
+    initialDate: LocalDate,
+    onDismissRequest: () -> Unit,
+    onDateSelected: (LocalDate) -> Unit
+) {
+    val initialMillis = remember(initialDate) {
+        initialDate.atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli()
+    }
+    val datePickerState = rememberDatePickerState(
+        initialSelectedDateMillis = initialMillis
+    )
+
+    DatePickerDialog(
+        onDismissRequest = onDismissRequest,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        val selectedDate = Instant.ofEpochMilli(millis)
+                            .atZone(ZoneId.of("UTC"))
+                            .toLocalDate()
+                        onDateSelected(selectedDate)
+                    } ?: onDismissRequest()
+                }
+            ) {
+                Text("Выбрать", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text("Отмена")
+            }
+        }
+    ) {
+        DatePicker(
+            state = datePickerState,
+            title = {
+                Text(
+                    text = "Срок окончания привычки",
+                    modifier = Modifier.padding(start = 24.dp, top = 16.dp),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            headline = {
+                Text(
+                    text = "Выберите дату на календаре",
+                    modifier = Modifier.padding(start = 24.dp, bottom = 12.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        )
+    }
+}
+
+fun getDaysPlural(days: Long): String {
+    val d = days.toInt()
+    val mod10 = d % 10
+    val mod100 = d % 100
+    return when {
+        mod100 in 11..14 -> "дней"
+        mod10 == 1 -> "день"
+        mod10 in 2..4 -> "дня"
+        else -> "дней"
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HabitTimePickerDialog(
     initialHour: Int,
@@ -1463,196 +1914,262 @@ fun HabitTimePickerDialog(
     onDismissRequest: () -> Unit,
     onConfirm: (hour: Int, minute: Int) -> Unit
 ) {
-    var hour by remember { mutableStateOf(initialHour) }
-    var minute by remember { mutableStateOf(initialMinute) }
+    val isDark = isSystemInDarkTheme()
+    var isDialMode by remember { mutableStateOf(true) }
+    var selectedHour by remember { mutableIntStateOf(initialHour) }
+    var selectedMinute by remember { mutableIntStateOf(initialMinute) }
+    var stateKey by remember { mutableIntStateOf(0) }
 
-    Dialog(onDismissRequest = onDismissRequest) {
+    val timePickerState = key(stateKey) {
+        rememberTimePickerState(
+            initialHour = selectedHour,
+            initialMinute = selectedMinute,
+            is24Hour = true
+        )
+    }
+
+    Dialog(
+        onDismissRequest = onDismissRequest,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             modifier = Modifier
-                .fillMaxWidth(0.9f)
-                .clip(RoundedCornerShape(24.dp)),
+                .widthIn(max = 380.dp)
+                .fillMaxWidth(0.94f)
+                .padding(vertical = 16.dp),
+            shape = RoundedCornerShape(28.dp),
             colors = CardDefaults.cardColors(
-                containerColor = if (isSystemInDarkTheme()) Color(0xFF1E1F22) else Color(0xFFFFFFFF)
+                containerColor = if (isDark) Color(0xFF1E1F22) else Color(0xFFFFFFFF)
             ),
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
         ) {
             Column(
                 modifier = Modifier
-                    .padding(24.dp)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .padding(20.dp)
+                    .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = "Время напоминания",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isSystemInDarkTheme()) Color.White else Color(0xFF1F2937)
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // Time picker visual block
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    // Hour selector column
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        IconButton(
-                            onClick = { hour = (hour + 1) % 24 },
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(if (isSystemInDarkTheme()) Color(0xFF2B2D31) else Color(0xFFF3F4F6))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowUp,
-                                contentDescription = "Прибавить час",
-                                tint = if (isSystemInDarkTheme()) Color.White else Color(0xFF1F2937)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Box(
-                            modifier = Modifier
-                                .width(80.dp)
-                                .height(80.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(if (isSystemInDarkTheme()) Color(0xFF2B2D31) else Color(0xFFF3F4F6))
-                                .border(1.dp, if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.1f) else Color(0xFFE5E7EB), RoundedCornerShape(16.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = String.format(Locale.US, "%02d", hour),
-                                style = MaterialTheme.typography.headlineLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isSystemInDarkTheme()) Color.White else Color(0xFF1F2937)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        IconButton(
-                            onClick = { hour = if (hour == 0) 23 else hour - 1 },
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(if (isSystemInDarkTheme()) Color(0xFF2B2D31) else Color(0xFFF3F4F6))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowDown,
-                                contentDescription = "Убавить час",
-                                tint = if (isSystemInDarkTheme()) Color.White else Color(0xFF1F2937)
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = ":",
-                        style = MaterialTheme.typography.headlineLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isSystemInDarkTheme()) Color.LightGray else Color(0xFF4B5563),
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-
-                    // Minute selector column
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        IconButton(
-                            onClick = { minute = (minute + 1) % 60 },
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(if (isSystemInDarkTheme()) Color(0xFF2B2D31) else Color(0xFFF3F4F6))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowUp,
-                                contentDescription = "Прибавить минуту",
-                                tint = if (isSystemInDarkTheme()) Color.White else Color(0xFF1F2937)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Box(
-                            modifier = Modifier
-                                .width(80.dp)
-                                .height(80.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(if (isSystemInDarkTheme()) Color(0xFF2B2D31) else Color(0xFFF3F4F6))
-                                .border(1.dp, if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.1f) else Color(0xFFE5E7EB), RoundedCornerShape(16.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = String.format(Locale.US, "%02d", minute),
-                                style = MaterialTheme.typography.headlineLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isSystemInDarkTheme()) Color.White else Color(0xFF1F2937)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        IconButton(
-                            onClick = { minute = if (minute == 0) 59 else minute - 1 },
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(if (isSystemInDarkTheme()) Color(0xFF2B2D31) else Color(0xFFF3F4F6))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowDown,
-                                contentDescription = "Убавить минуту",
-                                tint = if (isSystemInDarkTheme()) Color.White else Color(0xFF1F2937)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // Quick offset buttons
+                // Header with title, description and mode switcher
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    listOf(-15, -5, 5, 15).forEach { offset ->
-                        val sign = if (offset > 0) "+$offset" else "$offset"
-                        SuggestionChip(
-                            onClick = {
-                                val newMin = (minute + offset) % 60
-                                minute = if (newMin < 0) newMin + 60 else newMin
-                            },
-                            label = { Text(sign, style = MaterialTheme.typography.bodySmall) }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Schedule,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Время напоминания",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isDark) Color.White else Color(0xFF1F2937)
+                            )
+                            Text(
+                                text = if (isDialMode) "Крутите стрелки циферблата" else "Ввод времени цифрами",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (isDark) Color.LightGray else Color(0xFF64748B)
+                            )
+                        }
+                    }
+
+                    // Mode switch icon button (Clock dial <-> Keyboard)
+                    IconButton(
+                        onClick = {
+                            selectedHour = timePickerState.hour
+                            selectedMinute = timePickerState.minute
+                            isDialMode = !isDialMode
+                        },
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(if (isDark) Color(0xFF2B2D31) else Color(0xFFF1F5F9))
+                    ) {
+                        Icon(
+                            imageVector = if (isDialMode) Icons.Default.Keyboard else Icons.Default.Schedule,
+                            contentDescription = if (isDialMode) "Переключить на ввод с клавиатуры" else "Переключить на циферблат",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // Actions
+                // Presets
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val presets = listOf(
+                        Triple("🌅", "08:00", Pair(8, 0)),
+                        Triple("☀️", "13:00", Pair(13, 0)),
+                        Triple("🌆", "19:00", Pair(19, 0)),
+                        Triple("🌙", "21:30", Pair(21, 30))
+                    )
+                    presets.forEach { (emoji, label, time) ->
+                        val isSelected = timePickerState.hour == time.first && timePickerState.minute == time.second
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else if (isDark) Color(0xFF2B2D31) else Color(0xFFF1F5F9),
+                            border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    selectedHour = time.first
+                                    selectedMinute = time.second
+                                    stateKey++
+                                }
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(vertical = 6.dp, horizontal = 2.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(emoji, fontSize = 13.sp)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else if (isDark) Color.White else Color(0xFF1F2937)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Time picker container with clock face (циферблат)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(if (isDark) Color(0xFF17181A) else Color(0xFFF8FAFC))
+                        .padding(vertical = 10.dp, horizontal = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isDialMode) {
+                        TimePicker(
+                            state = timePickerState,
+                            colors = TimePickerDefaults.colors(
+                                clockDialColor = if (isDark) Color(0xFF26282D) else Color(0xFFEBF1FD),
+                                selectorColor = MaterialTheme.colorScheme.primary,
+                                clockDialSelectedContentColor = Color.White,
+                                clockDialUnselectedContentColor = if (isDark) Color.LightGray else Color(0xFF334155),
+                                timeSelectorSelectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                timeSelectorUnselectedContainerColor = if (isDark) Color(0xFF26282D) else Color(0xFFE2E8F0),
+                                timeSelectorSelectedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                timeSelectorUnselectedContentColor = if (isDark) Color.White else Color(0xFF1E293B)
+                            )
+                        )
+                    } else {
+                        TimeInput(
+                            state = timePickerState,
+                            colors = TimePickerDefaults.colors(
+                                timeSelectorSelectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                timeSelectorUnselectedContainerColor = if (isDark) Color(0xFF26282D) else Color(0xFFE2E8F0),
+                                timeSelectorSelectedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                timeSelectorUnselectedContentColor = if (isDark) Color.White else Color(0xFF1E293B)
+                            )
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Minute adjustments
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Сдвиг минут:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isDark) Color.Gray else Color(0xFF64748B)
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(-15, -5, 5, 15).forEach { offset ->
+                            val sign = if (offset > 0) "+$offset" else "$offset"
+                            SuggestionChip(
+                                onClick = {
+                                    var newMin = timePickerState.minute + offset
+                                    var newHour = timePickerState.hour
+                                    if (newMin < 0) {
+                                        newMin += 60
+                                        newHour = (newHour - 1 + 24) % 24
+                                    } else if (newMin >= 60) {
+                                        newMin -= 60
+                                        newHour = (newHour + 1) % 24
+                                    }
+                                    selectedHour = newHour
+                                    selectedMinute = newMin
+                                    stateKey++
+                                },
+                                label = { Text(sign, style = MaterialTheme.typography.labelSmall) },
+                                modifier = Modifier.height(28.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                // Actions: Cancel & Confirm buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextButton(onClick = onDismissRequest) {
-                        Text("Отмена", color = if (isSystemInDarkTheme()) Color.LightGray else Color(0xFF4B5563))
+                        Text(
+                            text = "Отмена",
+                            color = if (isDark) Color.LightGray else Color(0xFF4B5563)
+                        )
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Button(
-                        onClick = { onConfirm(hour, minute) },
+                        onClick = {
+                            onConfirm(timePickerState.hour, timePickerState.minute)
+                        },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary
-                        )
+                        ),
+                        shape = RoundedCornerShape(14.dp)
                     ) {
-                        Text("Выбрать")
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = String.format(
+                                Locale.getDefault(),
+                                "Выбрать %02d:%02d",
+                                timePickerState.hour,
+                                timePickerState.minute
+                            ),
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
