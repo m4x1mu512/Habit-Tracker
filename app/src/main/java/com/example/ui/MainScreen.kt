@@ -6,6 +6,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -50,6 +51,8 @@ import kotlin.random.Random
 import android.provider.Settings
 import android.net.Uri
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.pointer.pointerInput
 import android.content.Context
 import android.app.AlarmManager
 import android.os.Build
@@ -184,6 +187,7 @@ fun MainHabitApp(viewModel: HabitViewModel) {
     val isDark = isSystemInDarkTheme()
     val navBorderCol = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0)
     val navBgCol = if (isDark) Color(0xFF131416) else Color(0xFFFFFFFF)
+    val swipeThresholdPx = with(LocalDensity.current) { 72.dp.toPx() }
 
     Scaffold(
         topBar = {
@@ -257,6 +261,23 @@ fun MainHabitApp(viewModel: HabitViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .pointerInput(selectedTab, swipeThresholdPx) {
+                    var horizontalDrag = 0f
+                    detectHorizontalDragGestures(
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            horizontalDrag += dragAmount
+                        },
+                        onDragEnd = {
+                            when {
+                                horizontalDrag <= -swipeThresholdPx && selectedTab < 2 -> selectedTab++
+                                horizontalDrag >= swipeThresholdPx && selectedTab > 0 -> selectedTab--
+                            }
+                            horizontalDrag = 0f
+                        },
+                        onDragCancel = { horizontalDrag = 0f }
+                    )
+                }
         ) {
             // Main Content Area based on Selected Tab
             Crossfade(targetState = selectedTab, label = "tabTransition") { tab ->
