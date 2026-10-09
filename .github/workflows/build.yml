@@ -30,8 +30,17 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Restore debug signing keystore
-        run: base64 --decode debug.keystore.base64 > debug.keystore
+      - name: Restore or generate debug signing keystore
+        env:
+          DEBUG_KEYSTORE_SECRET: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$DEBUG_KEYSTORE_SECRET" ]; then
+            echo "$DEBUG_KEYSTORE_SECRET" | base64 --decode > debug.keystore
+          elif [ -f debug.keystore.base64 ]; then
+            base64 --decode debug.keystore.base64 > debug.keystore
+          elif [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
 
       - name: Build APK
         run: gradle --no-daemon assembleDebug
