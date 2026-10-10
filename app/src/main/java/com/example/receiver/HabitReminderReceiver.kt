@@ -156,30 +156,18 @@ class HabitReminderReceiver : BroadcastReceiver() {
 
     companion object {
         private fun setExactAlarm(context: Context, alarmManager: AlarmManager, triggerAtMillis: Long, pendingIntent: PendingIntent) {
-            val showIntent = PendingIntent.getActivity(
-                context,
-                0,
-                Intent(context, MainActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                },
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            // Primary: setAlarmClock guarantees second-level precision, bypasses Doze batching,
-            // and does not require SCHEDULE_EXACT_ALARM permission.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                try {
-                    alarmManager.setAlarmClock(
-                        AlarmManager.AlarmClockInfo(triggerAtMillis, showIntent),
-                        pendingIntent
-                    )
-                    Log.d("HabitReminder", "Exact alarm clock set successfully for millis: $triggerAtMillis")
-                    return
-                } catch (e: Exception) {
-                    Log.w("HabitReminder", "setAlarmClock failed, trying fallback", e)
-                }
+            // Cancel any previous alarm with this PendingIntent to immediately clear
+            // any status bar alarm clock icon if setAlarmClock was previously registered.
+            try {
+                alarmManager.cancel(pendingIntent)
+            } catch (e: Exception) {
+                // Ignore
             }
 
+            // IMPORTANT: Never use setAlarmClock here.
+            // setAlarmClock forces the Android OS to show a persistent alarm clock icon (⏰) in the status bar.
+            // Instead, setExactAndAllowWhileIdle delivers the exact alarm even during Doze/Idle mode
+            // WITHOUT displaying any alarm clock icon in the status bar.
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     if (alarmManager.canScheduleExactAlarms()) {
@@ -188,12 +176,8 @@ class HabitReminderReceiver : BroadcastReceiver() {
                             triggerAtMillis,
                             pendingIntent
                         )
-                    } else {
-                        alarmManager.setAndAllowWhileIdle(
-                            AlarmManager.RTC_WAKEUP,
-                            triggerAtMillis,
-                            pendingIntent
-                        )
+                        Log.d("HabitReminder", "Exact alarm scheduled via setExactAndAllowWhileIdle at: $triggerAtMillis (no status bar icon)")
+                        return
                     }
                 } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     alarmManager.setExactAndAllowWhileIdle(
@@ -201,15 +185,23 @@ class HabitReminderReceiver : BroadcastReceiver() {
                         triggerAtMillis,
                         pendingIntent
                     )
-                } else {
+                    Log.d("HabitReminder", "Exact alarm scheduled via setExactAndAllowWhileIdle at: $triggerAtMillis (no status bar icon)")
+                    return
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
                     alarmManager.setExact(
                         AlarmManager.RTC_WAKEUP,
                         triggerAtMillis,
                         pendingIntent
                     )
+                    Log.d("HabitReminder", "Exact alarm scheduled via setExact at: $triggerAtMillis")
+                    return
                 }
             } catch (e: SecurityException) {
-                Log.e("HabitReminder", "SecurityException scheduling exact alarm, falling back to setAndAllowWhileIdle", e)
+                Log.w("HabitReminder", "SecurityException scheduling exact alarm, attempting fallback", e)
+            }
+
+            // Fallback if exact alarms are restricted
+            try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     alarmManager.setAndAllowWhileIdle(
                         AlarmManager.RTC_WAKEUP,
@@ -223,13 +215,9 @@ class HabitReminderReceiver : BroadcastReceiver() {
                         pendingIntent
                     )
                 }
+                Log.d("HabitReminder", "Fallback alarm scheduled at: $triggerAtMillis")
             } catch (e: Exception) {
                 Log.e("HabitReminder", "Failed to set alarm", e)
-                alarmManager.set(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerAtMillis,
-                    pendingIntent
-                )
             }
         }
 
@@ -250,7 +238,7 @@ class HabitReminderReceiver : BroadcastReceiver() {
                 set(Calendar.SECOND, 0)
                 set(Calendar.MILLISECOND, 0)
                 
-                if (before(Calendar.getInstance())) {
+                if (timeInMillis <= System.currentTimeMillis()) {
                     add(Calendar.DAY_OF_MONTH, 1)
                 }
             }
