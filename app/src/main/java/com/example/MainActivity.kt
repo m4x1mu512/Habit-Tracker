@@ -18,6 +18,10 @@ import com.example.ui.HabitViewModel
 import com.example.ui.HabitViewModelFactory
 import com.example.ui.MainHabitApp
 import com.example.ui.theme.MyApplicationTheme
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,11 +47,19 @@ class MainActivity : ComponentActivity() {
         val factory = HabitViewModelFactory(application, repository)
         val viewModel = ViewModelProvider(this, factory)[HabitViewModel::class.java]
 
-        // 5. Schedule Daily Alarm Reminder at 8:00 AM
-        try {
-            HabitReminderReceiver.scheduleDailyReminder(this)
-        } catch (e: Exception) {
-            Log.e("HabitTracker", "Could not schedule reminder", e)
+        // 5. Purge all legacy alarm clocks so no alarm icon appears in status bar, and refresh active habit alarms
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                HabitReminderReceiver.cancelAllLegacyAlarms(applicationContext)
+                val habits = database.habitDao().getAllHabits().first()
+                for (habit in habits) {
+                    if (habit.notifyEnabled && !habit.isArchived) {
+                        HabitReminderReceiver.scheduleHabitReminder(applicationContext, habit)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("HabitTracker", "Could not purge legacy alarms or refresh reminders", e)
+            }
         }
 
         // 6. Set Jetpack Compose UI Content

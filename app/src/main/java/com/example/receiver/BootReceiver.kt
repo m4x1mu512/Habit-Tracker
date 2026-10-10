@@ -18,13 +18,14 @@ class BootReceiver : BroadcastReceiver() {
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     val db = HabitDatabase.getDatabase(context)
-                    // Schedule daily reminder
-                    HabitReminderReceiver.scheduleDailyReminder(context)
-                    // Obtain all and schedule active ones
+                    HabitReminderReceiver.cancelAllLegacyAlarms(context)
+                    // Obtain all habits and schedule only active ones with reminders enabled
                     val habits = db.habitDao().getAllHabits().first()
                     for (habit in habits) {
                         if (habit.notifyEnabled && !habit.isArchived) {
                             HabitReminderReceiver.scheduleHabitReminder(context, habit)
+                        } else {
+                            HabitReminderReceiver.cancelHabitReminder(context, habit.id)
                         }
                     }
                     Log.d("BootReceiver", "Successfully rescheduled all alarms after boot")

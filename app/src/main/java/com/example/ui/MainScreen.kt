@@ -2500,7 +2500,7 @@ fun ExactAlarmPermissionBanner(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Чтобы напоминания приходили строго вовремя, приложению требуется системное разрешение на показ точных будильников.",
+                    text = "Чтобы напоминания о привычках приходили строго вовремя, приложению требуется системное разрешение на точные напоминания.",
                     style = MaterialTheme.typography.bodySmall,
                     color = if (isDark) Color(0xFFF8B4B4) else Color(0xFF7F1D1D)
                 )
