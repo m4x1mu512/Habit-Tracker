@@ -627,6 +627,40 @@ fun HabitCardItem(
             Column(
                 modifier = Modifier.padding(start = 20.dp, top = 22.dp, end = 20.dp, bottom = 20.dp)
             ) {
+                // Upcoming habit banner
+                if (item.isUpcoming) {
+                    Row(
+                        modifier = Modifier
+                            .padding(bottom = 12.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isDark) Color(0xFF132F4C) else Color(0xFFE0F2FE))
+                            .border(
+                                width = 1.dp,
+                                color = if (isDark) Color(0xFF0284C7).copy(alpha = 0.6f) else Color(0xFFBAE6FD),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "⏳", fontSize = 13.sp)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Начнется ${item.habit.startDate}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isDark) Color(0xFF38BDF8) else Color(0xFF0284C7)
+                        )
+                        item.habit.endDate?.let { endStr ->
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "• по $endStr (включ.)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isDark) Color(0xFF38BDF8).copy(alpha = 0.8f) else Color(0xFF0284C7).copy(alpha = 0.8f)
+                            )
+                        }
+                    }
+                }
+
                 // Goal Achieved celebratory banner
                 if (isAchieved) {
                     Row(
@@ -699,6 +733,8 @@ fun HabitCardItem(
                         Text(
                             text = if (isAchieved) {
                                 "Цель выполнена • Серия: ${item.bestStreak} дн. 🏅"
+                            } else if (item.isUpcoming) {
+                                "Старт: ${item.habit.startDate} 📅"
                             } else {
                                 "Серия: ${item.currentStreak} дн." + if (item.currentStreak > 0) " 🔥" else ""
                             },
@@ -727,7 +763,13 @@ fun HabitCardItem(
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = if (daysLeft == 0L) "Последний день срока!" else "Осталось: $daysLeft ${getDaysPlural(daysLeft)}",
+                                    text = if (item.isUpcoming) {
+                                        "Период: с ${item.habit.startDate} по ${item.habit.endDate}"
+                                    } else if (daysLeft == 0L) {
+                                        "Последний день срока!"
+                                    } else {
+                                        "Осталось: $daysLeft ${getDaysPlural(daysLeft)} (по ${item.habit.endDate} включ.)"
+                                    },
                                     style = MaterialTheme.typography.labelSmall,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -1400,14 +1442,23 @@ fun AddEditHabitDialog(
 
     val today = remember { LocalDate.now() }
     var isIndefinite by remember { mutableStateOf(habit?.endDate == null) }
+    var targetStartDate by remember {
+        mutableStateOf(
+            habit?.startDate?.let {
+                try { LocalDate.parse(it) } catch (e: Exception) { null }
+            } ?: today
+        )
+    }
     var targetEndDate by remember {
         mutableStateOf(
             habit?.endDate?.let {
                 try { LocalDate.parse(it) } catch (e: Exception) { null }
-            } ?: today.plusDays(21)
+            } ?: today.plusDays(20)
         )
     }
-    var showDatePicker by remember { mutableStateOf(false) }
+    var showDateRangePicker by remember { mutableStateOf(false) }
+    var showStartDatePicker by remember { mutableStateOf(false) }
+    var showEndDatePicker by remember { mutableStateOf(false) }
 
     var notifyEnabled by remember { mutableStateOf(habit?.notifyEnabled ?: false) }
     var notifyHour by remember { mutableStateOf(habit?.notifyHour ?: 8) }
@@ -1607,7 +1658,7 @@ fun AddEditHabitDialog(
                                 .padding(14.dp)
                         ) {
                             Text(
-                                text = "Количество дней (быстрый выбор):",
+                                text = "Быстрый выбор длительности (с даты начала):",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                             )
@@ -1620,10 +1671,10 @@ fun AddEditHabitDialog(
                             ) {
                                 val presets = listOf(7L to "7 дней", 14L to "14 дней", 21L to "21 день", 30L to "30 дней", 60L to "60 дней", 100L to "100 дней")
                                 presets.forEach { (days, label) ->
-                                    val presetDate = today.plusDays(days)
-                                    val isSelected = targetEndDate == presetDate
+                                    val presetEndDate = targetStartDate.plusDays(days - 1)
+                                    val isSelected = targetEndDate == presetEndDate
                                     SuggestionChip(
-                                        onClick = { targetEndDate = presetDate },
+                                        onClick = { targetEndDate = presetEndDate },
                                         label = { Text(label, fontSize = 12.sp) },
                                         colors = SuggestionChipDefaults.suggestionChipColors(
                                             containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
@@ -1634,19 +1685,45 @@ fun AddEditHabitDialog(
                                 }
                             }
 
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            // Total duration badge
+                            val dateFormatterRu = DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.forLanguageTag("ru"))
+                            val totalDaysInclusive = (ChronoUnit.DAYS.between(targetStartDate, targetEndDate) + 1).coerceAtLeast(1)
+                            
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DateRange,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Период: $totalDaysInclusive ${getDaysPlural(totalDaysInclusive)} (включительно)",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
                             Spacer(modifier = Modifier.height(12.dp))
 
-                            val daysFromToday = ChronoUnit.DAYS.between(today, targetEndDate).coerceAtLeast(0)
-                            val dateFormatterRu = DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.forLanguageTag("ru"))
-                            val formattedDate = targetEndDate.format(dateFormatterRu)
-
+                            // Start Date Selection Card
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(MaterialTheme.colorScheme.surface)
-                                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
-                                    .clickable { showDatePicker = true }
+                                    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                                    .clickable { showStartDatePicker = true }
                                     .padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
@@ -1656,49 +1733,170 @@ fun AddEditHabitDialog(
                                         modifier = Modifier
                                             .size(38.dp)
                                             .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.primaryContainer),
+                                            .background(Color(0xFFE8F5E9)),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.CalendarMonth,
+                                            imageVector = Icons.Default.PlayArrow,
                                             contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
+                                            tint = Color(0xFF2E7D32),
                                             modifier = Modifier.size(20.dp)
                                         )
                                     }
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Column {
                                         Text(
-                                            text = "Активна до: $formattedDate",
+                                            text = "Дата начала привычки:",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            text = targetStartDate.format(dateFormatterRu),
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = FontWeight.Bold
                                         )
+                                        val startHint = if (targetStartDate == today) "Начинается сегодня"
+                                        else if (targetStartDate.isBefore(today)) "Началась в прошлом"
+                                        else "Начнется через ${ChronoUnit.DAYS.between(today, targetStartDate)} дн."
                                         Text(
-                                            text = if (daysFromToday == 0L) "Завершается сегодня" else "Срок: $daysFromToday ${getDaysPlural(daysFromToday)}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.primary
+                                            text = startHint,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color(0xFF2E7D32)
                                         )
                                     }
                                 }
-                                
                                 FilledTonalButton(
-                                    onClick = { showDatePicker = true },
+                                    onClick = { showStartDatePicker = true },
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                     modifier = Modifier.height(32.dp)
                                 ) {
-                                    Text("Календарь", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                    Text("С какого дня", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                 }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // End Date Selection Card (inclusive)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                                    .clickable { showEndDatePicker = true }
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFFFEBEE)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Flag,
+                                            contentDescription = null,
+                                            tint = Color(0xFFC62828),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = "Дата окончания (включительно):",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            text = targetEndDate.format(dateFormatterRu),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        val endHint = if (targetEndDate == today) "Завершается сегодня"
+                                        else if (targetEndDate.isBefore(today)) "Срок истек"
+                                        else "Осталось ${ChronoUnit.DAYS.between(today, targetEndDate)} дн."
+                                        Text(
+                                            text = endHint,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color(0xFFC62828)
+                                        )
+                                    }
+                                }
+                                FilledTonalButton(
+                                    onClick = { showEndDatePicker = true },
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Text("По какой день", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Full Range Picker Button on the Calendar
+                            OutlinedButton(
+                                onClick = { showDateRangePicker = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(vertical = 10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DateRange,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Выбрать диапазон на календаре",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
                             }
                         }
                     }
 
-                    if (showDatePicker) {
+                    if (showDateRangePicker) {
+                        HabitDateRangePickerDialog(
+                            initialStartDate = targetStartDate,
+                            initialEndDate = targetEndDate,
+                            onDismissRequest = { showDateRangePicker = false },
+                            onRangeSelected = { start, end ->
+                                targetStartDate = start
+                                targetEndDate = if (end.isBefore(start)) start else end
+                                showDateRangePicker = false
+                            }
+                        )
+                    }
+
+                    if (showStartDatePicker) {
                         HabitDatePickerDialog(
+                            title = "С какого дня начнется привычка",
+                            initialDate = targetStartDate,
+                            onDismissRequest = { showStartDatePicker = false },
+                            onDateSelected = { pickedDate ->
+                                targetStartDate = pickedDate
+                                if (targetEndDate.isBefore(pickedDate)) {
+                                    targetEndDate = pickedDate
+                                }
+                                showStartDatePicker = false
+                            }
+                        )
+                    }
+
+                    if (showEndDatePicker) {
+                        HabitDatePickerDialog(
+                            title = "В какой день (включительно) закончится",
                             initialDate = targetEndDate,
-                            onDismissRequest = { showDatePicker = false },
+                            onDismissRequest = { showEndDatePicker = false },
                             onDateSelected = { pickedDate ->
                                 targetEndDate = pickedDate
-                                showDatePicker = false
+                                if (pickedDate.isBefore(targetStartDate)) {
+                                    targetStartDate = pickedDate
+                                }
+                                showEndDatePicker = false
                             }
                         )
                     }
@@ -1821,7 +2019,7 @@ fun AddEditHabitDialog(
                                     notifyEnabled,
                                     notifyHour,
                                     notifyMinute,
-                                    habit?.startDate ?: today.toString(),
+                                    targetStartDate.toString(),
                                     if (isIndefinite) null else targetEndDate.toString()
                                 )
                             }
@@ -1839,6 +2037,7 @@ fun AddEditHabitDialog(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HabitDatePickerDialog(
+    title: String = "Выберите дату на календаре",
     initialDate: LocalDate,
     onDismissRequest: () -> Unit,
     onDateSelected: (LocalDate) -> Unit
@@ -1876,15 +2075,98 @@ fun HabitDatePickerDialog(
             state = datePickerState,
             title = {
                 Text(
-                    text = "Срок окончания привычки",
+                    text = title,
                     modifier = Modifier.padding(start = 24.dp, top = 16.dp),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
             },
             headline = {
+                val formatted = datePickerState.selectedDateMillis?.let {
+                    Instant.ofEpochMilli(it).atZone(ZoneId.of("UTC")).toLocalDate()
+                        .format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.forLanguageTag("ru")))
+                } ?: "Выберите дату на календаре"
                 Text(
-                    text = "Выберите дату на календаре",
+                    text = formatted,
+                    modifier = Modifier.padding(start = 24.dp, bottom = 12.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        )
+    }
+}
+
+// --- CALENDAR DATE RANGE PICKER DIALOG ---
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HabitDateRangePickerDialog(
+    initialStartDate: LocalDate,
+    initialEndDate: LocalDate,
+    onDismissRequest: () -> Unit,
+    onRangeSelected: (startDate: LocalDate, endDate: LocalDate) -> Unit
+) {
+    val initialStartMillis = remember(initialStartDate) {
+        initialStartDate.atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli()
+    }
+    val initialEndMillis = remember(initialEndDate) {
+        initialEndDate.atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli()
+    }
+    val dateRangePickerState = rememberDateRangePickerState(
+        initialSelectedStartDateMillis = initialStartMillis,
+        initialSelectedEndDateMillis = initialEndMillis
+    )
+
+    DatePickerDialog(
+        onDismissRequest = onDismissRequest,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val startMillis = dateRangePickerState.selectedStartDateMillis
+                    val endMillis = dateRangePickerState.selectedEndDateMillis
+                    if (startMillis != null) {
+                        val start = Instant.ofEpochMilli(startMillis)
+                            .atZone(ZoneId.of("UTC"))
+                            .toLocalDate()
+                        val end = (endMillis ?: startMillis).let {
+                            Instant.ofEpochMilli(it).atZone(ZoneId.of("UTC")).toLocalDate()
+                        }
+                        onRangeSelected(start, end)
+                    }
+                },
+                enabled = dateRangePickerState.selectedStartDateMillis != null
+            ) {
+                Text("Выбрать", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text("Отмена")
+            }
+        }
+    ) {
+        DateRangePicker(
+            state = dateRangePickerState,
+            modifier = Modifier.weight(1f),
+            title = {
+                Text(
+                    text = "Срок привычки (включительно)",
+                    modifier = Modifier.padding(start = 24.dp, top = 16.dp),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            headline = {
+                val startFormatted = dateRangePickerState.selectedStartDateMillis?.let {
+                    Instant.ofEpochMilli(it).atZone(ZoneId.of("UTC")).toLocalDate()
+                        .format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.forLanguageTag("ru")))
+                } ?: "Дата начала"
+                val endFormatted = dateRangePickerState.selectedEndDateMillis?.let {
+                    Instant.ofEpochMilli(it).atZone(ZoneId.of("UTC")).toLocalDate()
+                        .format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.forLanguageTag("ru")))
+                } ?: "Дата окончания"
+                Text(
+                    text = "$startFormatted — $endFormatted (включ.)",
                     modifier = Modifier.padding(start = 24.dp, bottom = 12.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant

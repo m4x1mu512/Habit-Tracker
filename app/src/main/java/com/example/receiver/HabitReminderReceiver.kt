@@ -39,6 +39,12 @@ class HabitReminderReceiver : BroadcastReceiver() {
                     } catch (e: Exception) { false }
                 }
 
+                val isHabitStarted: (Habit) -> Boolean = { h ->
+                    h.startDate == null || try {
+                        !LocalDate.now().isBefore(LocalDate.parse(h.startDate))
+                    } catch (e: Exception) { true }
+                }
+
                 if (habitId != -1L) {
                     val habit = db.habitDao().getHabitById(habitId)
                     if (habit != null && !habit.isArchived && habit.notifyEnabled && !isExpiredHabit(habit)) {
@@ -47,7 +53,7 @@ class HabitReminderReceiver : BroadcastReceiver() {
                     val completions = db.habitDao().getCompletionsForHabit(habitId)
                     val isCompletedToday = completions.any { it.dateStr == todayStr }
 
-                    if (habit != null && !habit.isArchived && habit.notifyEnabled && !isCompletedToday && !isExpiredHabit(habit)) {
+                    if (habit != null && !habit.isArchived && habit.notifyEnabled && !isCompletedToday && !isExpiredHabit(habit) && isHabitStarted(habit)) {
                         val activeToday = if (habit.frequency == "DAILY") {
                             true
                         } else {
@@ -73,7 +79,10 @@ class HabitReminderReceiver : BroadcastReceiver() {
                         val isExpired = habit.endDate != null && try {
                             LocalDate.now().isAfter(LocalDate.parse(habit.endDate))
                         } catch (e: Exception) { false }
-                        !habit.isArchived && habit.notifyEnabled && !isExpired && !completions.any { it.habitId == habit.id && it.dateStr == todayStr }
+                        val isStarted = habit.startDate == null || try {
+                            !LocalDate.now().isBefore(LocalDate.parse(habit.startDate))
+                        } catch (e: Exception) { true }
+                        !habit.isArchived && habit.notifyEnabled && !isExpired && isStarted && !completions.any { it.habitId == habit.id && it.dateStr == todayStr }
                     }.filter { habit ->
                         if (habit.frequency == "DAILY") {
                             true
@@ -276,16 +285,44 @@ class HabitReminderReceiver : BroadcastReceiver() {
                 return
             }
 
+            val today = LocalDate.now()
+            val initialDate = habit.startDate?.let {
+                try {
+                    val parsed = LocalDate.parse(it)
+                    if (parsed.isAfter(today)) parsed else today
+                } catch (e: Exception) { today }
+            } ?: today
+
             val calendar = Calendar.getInstance().apply {
                 timeInMillis = System.currentTimeMillis()
+                set(Calendar.YEAR, initialDate.year)
+                set(Calendar.MONTH, initialDate.monthValue - 1)
+                set(Calendar.DAY_OF_MONTH, initialDate.dayOfMonth)
                 set(Calendar.HOUR_OF_DAY, habit.notifyHour)
                 set(Calendar.MINUTE, habit.notifyMinute)
                 set(Calendar.SECOND, 0)
                 set(Calendar.MILLISECOND, 0)
                 
-                if (before(Calendar.getInstance())) {
+                if (timeInMillis <= System.currentTimeMillis()) {
                     add(Calendar.DAY_OF_MONTH, 1)
                 }
+            }
+
+            val alarmDate = LocalDate.of(
+                calendar.get(Calendar.YEAR),
+                calendar.get(Calendar.MONTH) + 1,
+                calendar.get(Calendar.DAY_OF_MONTH)
+            )
+            val isPastEndDate = habit.endDate?.let { endStr ->
+                try {
+                    alarmDate.isAfter(LocalDate.parse(endStr))
+                } catch (e: Exception) { false }
+            } ?: false
+
+            if (isPastEndDate) {
+                alarmManager.cancel(pendingIntent)
+                Log.d("HabitReminder", "Habit ${habit.id} alarm date $alarmDate is past end date ${habit.endDate}, cancelled.")
+                return
             }
 
             try {

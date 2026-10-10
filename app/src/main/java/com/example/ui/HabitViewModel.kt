@@ -181,10 +181,17 @@ class HabitViewModel(
         val todayStr = today.toString()
         val isCompletedToday = habitCompletions.contains(todayStr)
 
+        val habitStartDate = habit.startDate?.let {
+            try { LocalDate.parse(it) } catch (e: Exception) { null }
+        }
+
         // 1. Current streak calculation (back from today/yesterday)
         var currentStreak = 0
         var tempDate = today
         for (i in 0..365) {
+            if (habitStartDate != null && tempDate.isBefore(habitStartDate)) {
+                break
+            }
             val dayOfWeekInt = getDayOfWeekInt(tempDate.dayOfWeek)
             val isTarget = targetDays.contains(dayOfWeekInt)
             val isCompleted = habitCompletions.contains(tempDate.toString())
@@ -244,8 +251,9 @@ class HabitViewModel(
         var completedScheduledDays = 0
         for (offset in 0..6) {
             val day = today.minusDays(offset.toLong())
+            val isAfterOrEqualStart = habitStartDate == null || !day.isBefore(habitStartDate)
             val dayOfWeekInt = getDayOfWeekInt(day.dayOfWeek)
-            if (targetDays.contains(dayOfWeekInt)) {
+            if (targetDays.contains(dayOfWeekInt) && isAfterOrEqualStart) {
                 totalScheduledTargetDays++
                 if (habitCompletions.contains(day.toString())) {
                     completedScheduledDays++
@@ -262,6 +270,15 @@ class HabitViewModel(
             try {
                 val end = LocalDate.parse(endStr)
                 today.isAfter(end)
+            } catch (e: Exception) {
+                false
+            }
+        } ?: false
+
+        val isUpcoming = habit.startDate?.let { startStr ->
+            try {
+                val start = LocalDate.parse(startStr)
+                today.isBefore(start)
             } catch (e: Exception) {
                 false
             }
@@ -294,7 +311,7 @@ class HabitViewModel(
                 if (today.isBefore(start)) 0f
                 else if (today.isAfter(end)) 1f
                 else {
-                    val passed = java.time.temporal.ChronoUnit.DAYS.between(start, today)
+                    val passed = java.time.temporal.ChronoUnit.DAYS.between(start, today) + 1
                     (passed.toFloat() / totalGoalDays).coerceIn(0f, 1f)
                 }
             } catch (e: Exception) {
@@ -309,6 +326,7 @@ class HabitViewModel(
             weekProgress = weekProgress,
             isCompletedToday = isCompletedToday,
             isGoalAchieved = isGoalAchieved,
+            isUpcoming = isUpcoming,
             daysRemaining = daysRemaining,
             totalGoalDays = totalGoalDays,
             goalProgress = goalProgress
@@ -346,6 +364,7 @@ data class HabitWithStats(
     val weekProgress: Float, // 0.0f to 1.0f
     val isCompletedToday: Boolean,
     val isGoalAchieved: Boolean = false,
+    val isUpcoming: Boolean = false,
     val daysRemaining: Long? = null,
     val totalGoalDays: Long? = null,
     val goalProgress: Float? = null
