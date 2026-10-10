@@ -29,8 +29,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.testTag
+import com.example.ui.theme.ThemeMode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -186,6 +189,7 @@ fun MainHabitApp(viewModel: HabitViewModel) {
 
     var showAddEditDialog by remember { mutableStateOf(false) }
     var habitToEdit by remember { mutableStateOf<Habit?>(null) }
+    var showSettingsDialog by remember { mutableStateOf(false) }
     
     // Deletion Confirmation Dialog
     var habitToDelete by remember { mutableStateOf<Habit?>(null) }
@@ -204,7 +208,7 @@ fun MainHabitApp(viewModel: HabitViewModel) {
         }
     }
 
-    val isDark = isSystemInDarkTheme()
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val navBorderCol = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0)
     val navBgCol = if (isDark) Color(0xFF131416) else Color(0xFFFFFFFF)
 
@@ -236,6 +240,18 @@ fun MainHabitApp(viewModel: HabitViewModel) {
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 24.sp,
                             color = if (isDark) Color.White else Color(0xFF1B1B1F)
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { showSettingsDialog = true },
+                        modifier = Modifier.testTag("settings_icon_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Настройки",
+                            tint = if (isDark) Color.White else Color(0xFF1B1B1F)
                         )
                     }
                 },
@@ -413,6 +429,14 @@ fun MainHabitApp(viewModel: HabitViewModel) {
         }
     }
 
+    // Settings Dialog
+    if (showSettingsDialog) {
+        SettingsDialog(
+            viewModel = viewModel,
+            onDismiss = { showSettingsDialog = false }
+        )
+    }
+
     // Modal Add / Edit Custom Dialog
     if (showAddEditDialog) {
         AddEditHabitDialog(
@@ -555,7 +579,7 @@ fun HabitCardItem(
     onDelete: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
-    val isDark = isSystemInDarkTheme()
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
     val completed = item.isCompletedToday
     val isAchieved = item.isGoalAchieved
@@ -958,7 +982,7 @@ fun StatisticsTabContent(
     activeHabits: List<HabitWithStats>,
     completions: List<com.example.data.HabitCompletion>
 ) {
-    val isDark = isSystemInDarkTheme()
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val cardBg = if (isDark) Color(0xFF1E1F22) else Color(0xFFFFFFFF)
     val cardBorder = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0)
 
@@ -1019,7 +1043,7 @@ fun StatisticsTabContent(
 
 @Composable
 fun StatBox(value: String, label: String, modifier: Modifier = Modifier) {
-    val isDark = isSystemInDarkTheme()
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val boxBg = if (isDark) Color(0xFF2B2D31) else Color(0xFFF8F9FF)
     val boxBorder = if (isDark) Color.White.copy(alpha = 0.05f) else Color(0xFFF1F5F9)
     Card(
@@ -1056,7 +1080,7 @@ fun StatBox(value: String, label: String, modifier: Modifier = Modifier) {
 // --- CUSTOM CANVAS WEEK BAR CHART ---
 @Composable
 fun WeeklyBarChartCard(completions: List<com.example.data.HabitCompletion>) {
-    val isDark = isSystemInDarkTheme()
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val cardBg = if (isDark) Color(0xFF1E1F22) else Color(0xFFFFFFFF)
     val cardBorder = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0)
 
@@ -1159,7 +1183,7 @@ fun WeeklyBarChartCard(completions: List<com.example.data.HabitCompletion>) {
 // --- CURRENT MONTH CALENDAR ---
 @Composable
 fun CalendarCard(completions: List<com.example.data.HabitCompletion>) {
-    val isDark = isSystemInDarkTheme()
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val cardBg = if (isDark) Color(0xFF1E1F22) else Color(0xFFFFFFFF)
     val cardBorder = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE2E8F0)
 
@@ -1370,6 +1394,164 @@ fun ArchiveTabContent(
     }
 }
 
+// --- SETTINGS DIALOG ---
+@Composable
+fun SettingsDialog(
+    viewModel: HabitViewModel,
+    onDismiss: () -> Unit
+) {
+    val themeMode by viewModel.themeMode.collectAsState()
+    val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp)),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+                // Title
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Настройки",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Закрыть",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                HorizontalDivider()
+
+                // Theme selection
+                Text(
+                    text = "Тема оформления",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(if (isDarkTheme) Color(0xFF1E1F22) else Color(0xFFF8F9FF))
+                        .border(1.dp, if (isDarkTheme) Color.White.copy(alpha = 0.05f) else Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ThemeMode.values().forEach { mode ->
+                        val isSelected = themeMode == mode
+                        val icon = when (mode) {
+                            ThemeMode.SYSTEM -> Icons.Default.PhoneAndroid
+                            ThemeMode.LIGHT -> Icons.Default.WbSunny
+                            ThemeMode.DARK -> Icons.Default.DarkMode
+                        }
+                        val subtitle = when (mode) {
+                            ThemeMode.SYSTEM -> "Системная тема устройства"
+                            ThemeMode.LIGHT -> "Светлый интерфейс"
+                            ThemeMode.DARK -> "Темный интерфейс"
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Transparent)
+                                .clickable { viewModel.setThemeMode(mode) }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = null,
+                                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = mode.title,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = subtitle,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                    )
+                                }
+                            }
+
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = { viewModel.setThemeMode(mode) }
+                            )
+                        }
+                    }
+                }
+
+                // App Info
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Трекер Привычек",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "Версия 1.0",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
+
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Готово", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
 // --- FULL FORM DIALOG FOR NEW/EDIT HABIT ---
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -1400,14 +1582,21 @@ fun AddEditHabitDialog(
 
     val today = remember { LocalDate.now() }
     var isIndefinite by remember { mutableStateOf(habit?.endDate == null) }
+    var targetStartDate by remember {
+        mutableStateOf(
+            habit?.startDate?.let {
+                try { LocalDate.parse(it) } catch (e: Exception) { null }
+            } ?: today
+        )
+    }
     var targetEndDate by remember {
         mutableStateOf(
             habit?.endDate?.let {
                 try { LocalDate.parse(it) } catch (e: Exception) { null }
-            } ?: today.plusDays(21)
+            } ?: targetStartDate.plusDays(20)
         )
     }
-    var showDatePicker by remember { mutableStateOf(false) }
+    var showDateRangePicker by remember { mutableStateOf(false) }
 
     var notifyEnabled by remember { mutableStateOf(habit?.notifyEnabled ?: false) }
     var notifyHour by remember { mutableStateOf(habit?.notifyHour ?: 8) }
@@ -1418,6 +1607,7 @@ fun AddEditHabitDialog(
     val daysOfWeekRu = listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
 
     var nameError by remember { mutableStateOf(false) }
+    val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -1464,14 +1654,13 @@ fun AddEditHabitDialog(
                     maxLines = 2
                 )
 
-                // Emoji Selection GRID (horizontal lists or wrapped flows)
+                // Emoji Selection GRID
                 Text(
                     "Выберите иконку (эмодзи)",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold
                 )
                 
-                // Wrap in flowing row
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1517,7 +1706,6 @@ fun AddEditHabitDialog(
                     )
                 }
 
-                // If "Specific Days" selected, show Mon-Sun grid selection checkboxes
                 if (frequency == "WEEKLY") {
                     Column(
                         modifier = Modifier.fillMaxWidth()
@@ -1565,7 +1753,7 @@ fun AddEditHabitDialog(
                     }
                 }
 
-                // Goal Duration Selection (Срок активности привычки)
+                // Goal Duration Selection
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1602,8 +1790,8 @@ fun AddEditHabitDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(if (isSystemInDarkTheme()) Color(0xFF1E1F22) else Color(0xFFF8F9FF))
-                                .border(1.dp, if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.05f) else Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
+                                .background(if (isDarkTheme) Color(0xFF1E1F22) else Color(0xFFF8F9FF))
+                                .border(1.dp, if (isDarkTheme) Color.White.copy(alpha = 0.05f) else Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
                                 .padding(14.dp)
                         ) {
                             Text(
@@ -1620,10 +1808,10 @@ fun AddEditHabitDialog(
                             ) {
                                 val presets = listOf(7L to "7 дней", 14L to "14 дней", 21L to "21 день", 30L to "30 дней", 60L to "60 дней", 100L to "100 дней")
                                 presets.forEach { (days, label) ->
-                                    val presetDate = today.plusDays(days)
-                                    val isSelected = targetEndDate == presetDate
+                                    val presetEndDate = targetStartDate.plusDays(days - 1)
+                                    val isSelected = targetEndDate == presetEndDate
                                     SuggestionChip(
-                                        onClick = { targetEndDate = presetDate },
+                                        onClick = { targetEndDate = presetEndDate },
                                         label = { Text(label, fontSize = 12.sp) },
                                         colors = SuggestionChipDefaults.suggestionChipColors(
                                             containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
@@ -1636,69 +1824,81 @@ fun AddEditHabitDialog(
 
                             Spacer(modifier = Modifier.height(12.dp))
 
-                            val daysFromToday = ChronoUnit.DAYS.between(today, targetEndDate).coerceAtLeast(0)
+                            val totalDays = ChronoUnit.DAYS.between(targetStartDate, targetEndDate).coerceAtLeast(0) + 1
                             val dateFormatterRu = DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.forLanguageTag("ru"))
-                            val formattedDate = targetEndDate.format(dateFormatterRu)
+                            val formattedStartDate = targetStartDate.format(dateFormatterRu)
+                            val formattedEndDate = targetEndDate.format(dateFormatterRu)
 
-                            Row(
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(MaterialTheme.colorScheme.surface)
                                     .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
-                                    .clickable { showDatePicker = true }
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                    .clickable { showDateRangePicker = true }
+                                    .padding(12.dp)
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(38.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.primaryContainer),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.CalendarMonth,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Column {
-                                        Text(
-                                            text = "Активна до: $formattedDate",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            text = if (daysFromToday == 0L) "Завершается сегодня" else "Срок: $daysFromToday ${getDaysPlural(daysFromToday)}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                }
-                                
-                                FilledTonalButton(
-                                    onClick = { showDatePicker = true },
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                    modifier = Modifier.height(32.dp)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text("Календарь", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(38.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.primaryContainer),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CalendarMonth,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text(
+                                                text = "Старт: $formattedStartDate",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "Конец: $formattedEndDate (вкл.)",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "Период: $totalDays ${getDaysPlural(totalDays)}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+                                    
+                                    FilledTonalButton(
+                                        onClick = { showDateRangePicker = true },
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                        modifier = Modifier.height(32.dp)
+                                    ) {
+                                        Text("Календарь", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                    }
                                 }
                             }
                         }
                     }
 
-                    if (showDatePicker) {
-                        HabitDatePickerDialog(
-                            initialDate = targetEndDate,
-                            onDismissRequest = { showDatePicker = false },
-                            onDateSelected = { pickedDate ->
-                                targetEndDate = pickedDate
-                                showDatePicker = false
+                    if (showDateRangePicker) {
+                        HabitDateRangePickerDialog(
+                            initialStartDate = targetStartDate,
+                            initialEndDate = targetEndDate,
+                            onDismissRequest = { showDateRangePicker = false },
+                            onDateRangeSelected = { pickedStart, pickedEnd ->
+                                targetStartDate = pickedStart
+                                targetEndDate = pickedEnd
+                                showDateRangePicker = false
                             }
                         )
                     }
@@ -1730,13 +1930,12 @@ fun AddEditHabitDialog(
                 }
 
                 if (notifyEnabled) {
-                    // Interactive Time selection trigger block
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(if (isSystemInDarkTheme()) Color(0xFF1E1F22) else Color(0xFFF8F9FF))
-                            .border(1.dp, if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.05f) else Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
+                            .background(if (isDarkTheme) Color(0xFF1E1F22) else Color(0xFFF8F9FF))
+                            .border(1.dp, if (isDarkTheme) Color.White.copy(alpha = 0.05f) else Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
                             .clickable { showTimePicker = true }
                             .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1755,7 +1954,7 @@ fun AddEditHabitDialog(
                                     "Время напоминания",
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = if (isSystemInDarkTheme()) Color.LightGray else Color(0xFF1F2937)
+                                    color = if (isDarkTheme) Color.LightGray else Color(0xFF1F2937)
                                 )
                                 Text(
                                     "Выбрать на циферблате",
@@ -1821,7 +2020,7 @@ fun AddEditHabitDialog(
                                     notifyEnabled,
                                     notifyHour,
                                     notifyMinute,
-                                    habit?.startDate ?: today.toString(),
+                                    targetStartDate.toString(),
                                     if (isIndefinite) null else targetEndDate.toString()
                                 )
                             }
@@ -1835,19 +2034,24 @@ fun AddEditHabitDialog(
     }
 }
 
-// --- CALENDAR DATE PICKER DIALOG ---
+// --- CALENDAR DATE RANGE PICKER DIALOG ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HabitDatePickerDialog(
-    initialDate: LocalDate,
+fun HabitDateRangePickerDialog(
+    initialStartDate: LocalDate,
+    initialEndDate: LocalDate,
     onDismissRequest: () -> Unit,
-    onDateSelected: (LocalDate) -> Unit
+    onDateRangeSelected: (LocalDate, LocalDate) -> Unit
 ) {
-    val initialMillis = remember(initialDate) {
-        initialDate.atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli()
+    val initialStartMillis = remember(initialStartDate) {
+        initialStartDate.atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli()
     }
-    val datePickerState = rememberDatePickerState(
-        initialSelectedDateMillis = initialMillis
+    val initialEndMillis = remember(initialEndDate) {
+        initialEndDate.atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli()
+    }
+    val dateRangePickerState = rememberDateRangePickerState(
+        initialSelectedStartDateMillis = initialStartMillis,
+        initialSelectedEndDateMillis = initialEndMillis
     )
 
     DatePickerDialog(
@@ -1855,12 +2059,23 @@ fun HabitDatePickerDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    datePickerState.selectedDateMillis?.let { millis ->
-                        val selectedDate = Instant.ofEpochMilli(millis)
+                    val startMillis = dateRangePickerState.selectedStartDateMillis
+                    val endMillis = dateRangePickerState.selectedEndDateMillis
+                    if (startMillis != null) {
+                        val selectedStart = Instant.ofEpochMilli(startMillis)
                             .atZone(ZoneId.of("UTC"))
                             .toLocalDate()
-                        onDateSelected(selectedDate)
-                    } ?: onDismissRequest()
+                        val selectedEnd = Instant.ofEpochMilli(endMillis ?: startMillis)
+                            .atZone(ZoneId.of("UTC"))
+                            .toLocalDate()
+                        if (selectedEnd.isBefore(selectedStart)) {
+                            onDateRangeSelected(selectedStart, selectedStart)
+                        } else {
+                            onDateRangeSelected(selectedStart, selectedEnd)
+                        }
+                    } else {
+                        onDismissRequest()
+                    }
                 }
             ) {
                 Text("Выбрать", fontWeight = FontWeight.Bold)
@@ -1872,24 +2087,37 @@ fun HabitDatePickerDialog(
             }
         }
     ) {
-        DatePicker(
-            state = datePickerState,
+        DateRangePicker(
+            state = dateRangePickerState,
             title = {
                 Text(
-                    text = "Срок окончания привычки",
+                    text = "Период действия привычки",
                     modifier = Modifier.padding(start = 24.dp, top = 16.dp),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
             },
             headline = {
+                val start = dateRangePickerState.selectedStartDateMillis?.let {
+                    Instant.ofEpochMilli(it).atZone(ZoneId.of("UTC")).toLocalDate()
+                }
+                val end = dateRangePickerState.selectedEndDateMillis?.let {
+                    Instant.ofEpochMilli(it).atZone(ZoneId.of("UTC")).toLocalDate()
+                }
+                val formatter = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.forLanguageTag("ru"))
+                val text = when {
+                    start != null && end != null -> "С ${start.format(formatter)} по ${end.format(formatter)} (включительно)"
+                    start != null -> "С ${start.format(formatter)}..."
+                    else -> "Выберите дату начала и окончания на календаре"
+                }
                 Text(
-                    text = "Выберите дату на календаре",
+                    text = text,
                     modifier = Modifier.padding(start = 24.dp, bottom = 12.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            }
+            },
+            modifier = Modifier.weight(1f, fill = false)
         )
     }
 }
@@ -1914,7 +2142,7 @@ fun HabitTimePickerDialog(
     onDismissRequest: () -> Unit,
     onConfirm: (hour: Int, minute: Int) -> Unit
 ) {
-    val isDark = isSystemInDarkTheme()
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     var isDialMode by remember { mutableStateOf(true) }
     var selectedHour by remember { mutableIntStateOf(initialHour) }
     var selectedMinute by remember { mutableIntStateOf(initialMinute) }
@@ -2182,7 +2410,7 @@ fun ExactAlarmPermissionBanner(
     context: Context,
     onPermissionGranted: () -> Unit
 ) {
-    val isDark = isSystemInDarkTheme()
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     Card(
         modifier = Modifier
             .fillMaxWidth()
