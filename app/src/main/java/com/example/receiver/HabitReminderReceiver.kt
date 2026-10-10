@@ -8,9 +8,11 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
+import com.example.R
 import com.example.data.Habit
 import com.example.data.HabitDatabase
 import kotlinx.coroutines.CoroutineScope
@@ -39,6 +41,12 @@ class HabitReminderReceiver : BroadcastReceiver() {
                     } catch (e: Exception) { false }
                 }
 
+                val isHabitStarted: (Habit) -> Boolean = { h ->
+                    h.startDate == null || try {
+                        !LocalDate.now().isBefore(LocalDate.parse(h.startDate))
+                    } catch (e: Exception) { true }
+                }
+
                 if (habitId != -1L) {
                     val habit = db.habitDao().getHabitById(habitId)
                     if (habit != null && !habit.isArchived && habit.notifyEnabled && !isExpiredHabit(habit)) {
@@ -47,7 +55,7 @@ class HabitReminderReceiver : BroadcastReceiver() {
                     val completions = db.habitDao().getCompletionsForHabit(habitId)
                     val isCompletedToday = completions.any { it.dateStr == todayStr }
 
-                    if (habit != null && !habit.isArchived && habit.notifyEnabled && !isCompletedToday && !isExpiredHabit(habit)) {
+                    if (habit != null && !habit.isArchived && habit.notifyEnabled && !isCompletedToday && !isExpiredHabit(habit) && isHabitStarted(habit)) {
                         val activeToday = if (habit.frequency == "DAILY") {
                             true
                         } else {
@@ -65,7 +73,7 @@ class HabitReminderReceiver : BroadcastReceiver() {
                         }
                     }
                 } else {
-                    scheduleDailyReminder(context)
+                    cancelDailyReminder(context)
                     val habits = db.habitDao().getAllHabits().first()
                     val completions = db.habitDao().getAllCompletionsFlow().first()
                     
@@ -73,7 +81,10 @@ class HabitReminderReceiver : BroadcastReceiver() {
                         val isExpired = habit.endDate != null && try {
                             LocalDate.now().isAfter(LocalDate.parse(habit.endDate))
                         } catch (e: Exception) { false }
-                        !habit.isArchived && habit.notifyEnabled && !isExpired && !completions.any { it.habitId == habit.id && it.dateStr == todayStr }
+                        val isStarted = habit.startDate == null || try {
+                            !LocalDate.now().isBefore(LocalDate.parse(habit.startDate))
+                        } catch (e: Exception) { true }
+                        !habit.isArchived && habit.notifyEnabled && !isExpired && isStarted && !completions.any { it.habitId == habit.id && it.dateStr == todayStr }
                     }.filter { habit ->
                         if (habit.frequency == "DAILY") {
                             true
@@ -130,7 +141,7 @@ class HabitReminderReceiver : BroadcastReceiver() {
         )
 
         val notification = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setSmallIcon(R.drawable.ic_notification_reminder)
             .setContentTitle(title)
             .setContentText(content)
             .setStyle(NotificationCompat.BigTextStyle().bigText(content))
@@ -147,84 +158,119 @@ class HabitReminderReceiver : BroadcastReceiver() {
 
     companion object {
         private fun setExactAlarm(context: Context, alarmManager: AlarmManager, triggerAtMillis: Long, pendingIntent: PendingIntent) {
-            val showIntent = PendingIntent.getActivity(
-                context,
-                0,
-                Intent(context, MainActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                },
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            // Primary: setAlarmClock guarantees second-level precision, bypasses Doze batching,
-            // and does not require SCHEDULE_EXACT_ALARM permission.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                try {
-                    alarmManager.setAlarmClock(
-                        AlarmManager.AlarmClockInfo(triggerAtMillis, showIntent),
-                        pendingIntent
-                    )
-                    Log.d("HabitReminder", "Exact alarm clock set successfully for millis: $triggerAtMillis")
-                    return
-                } catch (e: Exception) {
-                    Log.w("HabitReminder", "setAlarmClock failed, trying fallback", e)
-                }
+            // Cancel any previous alarm with this PendingIntent
+            try {
+                alarmManager.cancel(pendingIntent)
+            } catch (e: Exception) {
+                // Ignore
             }
+
+            val delayMillis = triggerAtMillis - System.currentTimeMillis()
+            if (delayMillis < 0) {
+                Log.w("HabitReminder", "Trigger time is in the past: $triggerAtMillis")
+                return
+            }
+
+            // CRITICAL: We use ELAPSED_REALTIME_WAKEUP instead of RTC_WAKEUP and NEVER setAlarmClock.
+            // On devices like OnePlus (OxygenOS/ColorOS), Xiaomi (MIUI/HyperOS), Nothing OS, etc.,
+            // the system UI checks for RTC/clock alarms and displays a persistent alarm clock icon (⏰)
+            // in the status bar.
+            // Using ELAPSED_REALTIME_WAKEUP with setExactAndAllowWhileIdle wakes the device up and
+            // fires at the exact requested minute without triggering the alarm clock icon in the status bar!
+            val triggerAtElapsed = SystemClock.elapsedRealtime() + delayMillis
 
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     if (alarmManager.canScheduleExactAlarms()) {
                         alarmManager.setExactAndAllowWhileIdle(
-                            AlarmManager.RTC_WAKEUP,
-                            triggerAtMillis,
+                            AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                            triggerAtElapsed,
                             pendingIntent
                         )
-                    } else {
-                        alarmManager.setAndAllowWhileIdle(
-                            AlarmManager.RTC_WAKEUP,
-                            triggerAtMillis,
-                            pendingIntent
-                        )
+                        Log.d("HabitReminder", "Exact alarm scheduled via ELAPSED_REALTIME_WAKEUP at elapsed: $triggerAtElapsed (delay: $delayMillis ms, no status icon)")
+                        return
                     }
                 } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     alarmManager.setExactAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP,
-                        triggerAtMillis,
+                        AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                        triggerAtElapsed,
                         pendingIntent
                     )
-                } else {
+                    Log.d("HabitReminder", "Exact alarm scheduled via ELAPSED_REALTIME_WAKEUP at elapsed: $triggerAtElapsed (delay: $delayMillis ms, no status icon)")
+                    return
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
                     alarmManager.setExact(
-                        AlarmManager.RTC_WAKEUP,
-                        triggerAtMillis,
+                        AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                        triggerAtElapsed,
                         pendingIntent
                     )
+                    Log.d("HabitReminder", "Exact alarm scheduled via setExact at elapsed: $triggerAtElapsed")
+                    return
                 }
             } catch (e: SecurityException) {
-                Log.e("HabitReminder", "SecurityException scheduling exact alarm, falling back to setAndAllowWhileIdle", e)
+                Log.w("HabitReminder", "SecurityException scheduling exact alarm, attempting fallback", e)
+            }
+
+            // Fallback if exact alarms are restricted
+            try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     alarmManager.setAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP,
-                        triggerAtMillis,
+                        AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                        triggerAtElapsed,
                         pendingIntent
                     )
                 } else {
                     alarmManager.set(
-                        AlarmManager.RTC_WAKEUP,
-                        triggerAtMillis,
+                        AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                        triggerAtElapsed,
                         pendingIntent
                     )
                 }
+                Log.d("HabitReminder", "Fallback alarm scheduled at elapsed: $triggerAtElapsed")
             } catch (e: Exception) {
                 Log.e("HabitReminder", "Failed to set alarm", e)
-                alarmManager.set(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerAtMillis,
-                    pendingIntent
-                )
             }
         }
 
-        fun scheduleDailyReminder(context: Context) {
+        fun cancelAllLegacyAlarms(context: Context) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            cancelDailyReminder(context)
+
+            for (code in (0..100) + (1000..1100)) {
+                try {
+                    val broadcastIntent = Intent(context, HabitReminderReceiver::class.java).apply {
+                        if (code >= 1000) putExtra("HABIT_ID", (code - 1000).toLong())
+                    }
+                    val pi = PendingIntent.getBroadcast(
+                        context,
+                        code,
+                        broadcastIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+                    alarmManager.cancel(pi)
+                    pi.cancel()
+                } catch (e: Exception) {
+                    // Ignore
+                }
+
+                try {
+                    val activityIntent = Intent(context, MainActivity::class.java)
+                    val showIntent = PendingIntent.getActivity(
+                        context,
+                        code,
+                        activityIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+                    alarmManager.cancel(showIntent)
+                    showIntent.cancel()
+                } catch (e: Exception) {
+                    // Ignore
+                }
+            }
+            Log.d("HabitReminder", "Purged all legacy alarm clocks from AlarmManager")
+        }
+
+        fun cancelDailyReminder(context: Context) {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             val intent = Intent(context, HabitReminderReceiver::class.java)
             val pendingIntent = PendingIntent.getBroadcast(
@@ -233,25 +279,22 @@ class HabitReminderReceiver : BroadcastReceiver() {
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-
-            val calendar = Calendar.getInstance().apply {
-                timeInMillis = System.currentTimeMillis()
-                set(Calendar.HOUR_OF_DAY, 8)
-                set(Calendar.MINUTE, 0)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-                
-                if (before(Calendar.getInstance())) {
-                    add(Calendar.DAY_OF_MONTH, 1)
-                }
-            }
+            alarmManager.cancel(pendingIntent)
+            pendingIntent.cancel()
 
             try {
-                setExactAlarm(context, alarmManager, calendar.timeInMillis, pendingIntent)
-                Log.d("HabitReminder", "Daily exact alarm scheduled for 8:00 AM. Next run at: ${calendar.time}")
+                val showIntent = PendingIntent.getActivity(
+                    context,
+                    0,
+                    Intent(context, MainActivity::class.java),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                alarmManager.cancel(showIntent)
+                showIntent.cancel()
             } catch (e: Exception) {
-                Log.e("HabitReminder", "Failed to schedule Alarm", e)
+                // Ignore
             }
+            Log.d("HabitReminder", "Cancelled legacy daily reminder (code 0)")
         }
 
         fun scheduleHabitReminder(context: Context, habit: Habit) {
@@ -276,16 +319,44 @@ class HabitReminderReceiver : BroadcastReceiver() {
                 return
             }
 
+            val today = LocalDate.now()
+            val initialDate = habit.startDate?.let {
+                try {
+                    val parsed = LocalDate.parse(it)
+                    if (parsed.isAfter(today)) parsed else today
+                } catch (e: Exception) { today }
+            } ?: today
+
             val calendar = Calendar.getInstance().apply {
                 timeInMillis = System.currentTimeMillis()
+                set(Calendar.YEAR, initialDate.year)
+                set(Calendar.MONTH, initialDate.monthValue - 1)
+                set(Calendar.DAY_OF_MONTH, initialDate.dayOfMonth)
                 set(Calendar.HOUR_OF_DAY, habit.notifyHour)
                 set(Calendar.MINUTE, habit.notifyMinute)
                 set(Calendar.SECOND, 0)
                 set(Calendar.MILLISECOND, 0)
                 
-                if (before(Calendar.getInstance())) {
+                if (timeInMillis <= System.currentTimeMillis()) {
                     add(Calendar.DAY_OF_MONTH, 1)
                 }
+            }
+
+            val alarmDate = LocalDate.of(
+                calendar.get(Calendar.YEAR),
+                calendar.get(Calendar.MONTH) + 1,
+                calendar.get(Calendar.DAY_OF_MONTH)
+            )
+            val isPastEndDate = habit.endDate?.let { endStr ->
+                try {
+                    alarmDate.isAfter(LocalDate.parse(endStr))
+                } catch (e: Exception) { false }
+            } ?: false
+
+            if (isPastEndDate) {
+                alarmManager.cancel(pendingIntent)
+                Log.d("HabitReminder", "Habit ${habit.id} alarm date $alarmDate is past end date ${habit.endDate}, cancelled.")
+                return
             }
 
             try {
@@ -309,6 +380,19 @@ class HabitReminderReceiver : BroadcastReceiver() {
             )
             alarmManager.cancel(pendingIntent)
             pendingIntent.cancel()
+
+            try {
+                val showIntent = PendingIntent.getActivity(
+                    context,
+                    habitId.toInt() + 1000,
+                    Intent(context, MainActivity::class.java),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                alarmManager.cancel(showIntent)
+                showIntent.cancel()
+            } catch (e: Exception) {
+                // Ignore
+            }
             Log.d("HabitReminder", "Cancelled alarm for habit $habitId")
         }
     }
