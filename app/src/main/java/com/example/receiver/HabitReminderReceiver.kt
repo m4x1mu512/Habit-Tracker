@@ -171,40 +171,32 @@ class HabitReminderReceiver : BroadcastReceiver() {
                 return
             }
 
-            // CRITICAL: We use ELAPSED_REALTIME_WAKEUP instead of RTC_WAKEUP and NEVER setAlarmClock.
-            // On devices like OnePlus (OxygenOS/ColorOS), Xiaomi (MIUI/HyperOS), Nothing OS, etc.,
-            // the system UI checks for RTC/clock alarms and displays a persistent alarm clock icon (⏰)
-            // in the status bar.
-            // Using ELAPSED_REALTIME_WAKEUP with setExactAndAllowWhileIdle wakes the device up and
-            // fires at the exact requested minute without triggering the alarm clock icon in the status bar!
-            val triggerAtElapsed = SystemClock.elapsedRealtime() + delayMillis
-
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     if (alarmManager.canScheduleExactAlarms()) {
                         alarmManager.setExactAndAllowWhileIdle(
-                            AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                            triggerAtElapsed,
+                            AlarmManager.RTC_WAKEUP,
+                            triggerAtMillis,
                             pendingIntent
                         )
-                        Log.d("HabitReminder", "Exact alarm scheduled via ELAPSED_REALTIME_WAKEUP at elapsed: $triggerAtElapsed (delay: $delayMillis ms, no status icon)")
+                        Log.d("HabitReminder", "Exact alarm scheduled via RTC_WAKEUP at millis: $triggerAtMillis (delay: $delayMillis ms)")
                         return
                     }
                 } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     alarmManager.setExactAndAllowWhileIdle(
-                        AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                        triggerAtElapsed,
+                        AlarmManager.RTC_WAKEUP,
+                        triggerAtMillis,
                         pendingIntent
                     )
-                    Log.d("HabitReminder", "Exact alarm scheduled via ELAPSED_REALTIME_WAKEUP at elapsed: $triggerAtElapsed (delay: $delayMillis ms, no status icon)")
+                    Log.d("HabitReminder", "Exact alarm scheduled via RTC_WAKEUP at millis: $triggerAtMillis (delay: $delayMillis ms)")
                     return
                 } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
                     alarmManager.setExact(
-                        AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                        triggerAtElapsed,
+                        AlarmManager.RTC_WAKEUP,
+                        triggerAtMillis,
                         pendingIntent
                     )
-                    Log.d("HabitReminder", "Exact alarm scheduled via setExact at elapsed: $triggerAtElapsed")
+                    Log.d("HabitReminder", "Exact alarm scheduled via setExact at millis: $triggerAtMillis")
                     return
                 }
             } catch (e: SecurityException) {
@@ -215,20 +207,40 @@ class HabitReminderReceiver : BroadcastReceiver() {
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     alarmManager.setAndAllowWhileIdle(
-                        AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                        triggerAtElapsed,
+                        AlarmManager.RTC_WAKEUP,
+                        triggerAtMillis,
                         pendingIntent
                     )
                 } else {
                     alarmManager.set(
-                        AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                        triggerAtElapsed,
+                        AlarmManager.RTC_WAKEUP,
+                        triggerAtMillis,
                         pendingIntent
                     )
                 }
-                Log.d("HabitReminder", "Fallback alarm scheduled at elapsed: $triggerAtElapsed")
+                Log.d("HabitReminder", "Fallback alarm scheduled at millis: $triggerAtMillis")
             } catch (e: Exception) {
                 Log.e("HabitReminder", "Failed to set alarm", e)
+            }
+        }
+
+        fun rescheduleAllHabitReminders(context: Context) {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val db = HabitDatabase.getDatabase(context)
+                    cancelAllLegacyAlarms(context)
+                    val habits = db.habitDao().getAllHabits().first()
+                    for (habit in habits) {
+                        if (habit.notifyEnabled && !habit.isArchived) {
+                            scheduleHabitReminder(context, habit)
+                        } else {
+                            cancelHabitReminder(context, habit.id)
+                        }
+                    }
+                    Log.d("HabitReminder", "Successfully rescheduled all habit reminders (${habits.size} habits)")
+                } catch (e: Exception) {
+                    Log.e("HabitReminder", "Error rescheduling all habit reminders", e)
+                }
             }
         }
 
