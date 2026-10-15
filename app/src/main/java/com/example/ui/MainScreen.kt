@@ -75,21 +75,23 @@ import androidx.compose.ui.platform.testTag
 import kotlinx.coroutines.launch
 import kotlin.math.absoluteValue
 
-// --- CONFETTI PHYSICS ENGINE ---
-data class Particle(
-    val x: Float,
-    val y: Float,
-    val vx: Float,
-    val vy: Float,
-    val color: Color,
-    val size: Float,
-    val rotation: Float,
-    val rotationSpeed: Float,
-    val alpha: Float = 1.0f
+// --- CONFETTI PHYSICS ENGINE (Zero-Allocation on Android 8+) ---
+class Particle(
+    var x: Float = 0f,
+    var y: Float = 0f,
+    var vx: Float = 0f,
+    var vy: Float = 0f,
+    var color: Color = Color.Transparent,
+    var size: Float = 0f,
+    var rotation: Float = 0f,
+    var rotationSpeed: Float = 0f,
+    var alpha: Float = 1.0f
 )
 
 class ConfettiState {
-    var particles by mutableStateOf(listOf<Particle>())
+    private val poolSize = 40
+    val particles = Array(poolSize) { Particle() }
+    var frameTick by mutableIntStateOf(0)
     var isActive by mutableStateOf(false)
 
     fun trigger() {
@@ -101,39 +103,37 @@ class ConfettiState {
             Color(0xFF9C27B0), // Purple
             Color(0xFF00BCD4)  // Cyan
         )
-        // Spawn 80 particles heading downwards with slight dispersal
-        val list = List(85) {
-            Particle(
-                x = Random.nextFloat() * 1000f,
-                y = -50f,
-                vx = (Random.nextFloat() - 0.5f) * 16f,
-                vy = Random.nextFloat() * 12f + 8f,
-                color = colors.random(),
-                size = Random.nextFloat() * 18f + 12f,
-                rotation = Random.nextFloat() * 360f,
-                rotationSpeed = (Random.nextFloat() - 0.5f) * 12f
-            )
+        for (p in particles) {
+            p.x = Random.nextFloat() * 1000f
+            p.y = -40f
+            p.vx = (Random.nextFloat() - 0.5f) * 14f
+            p.vy = Random.nextFloat() * 10f + 6f
+            p.color = colors.random()
+            p.size = Random.nextFloat() * 14f + 10f
+            p.rotation = Random.nextFloat() * 360f
+            p.rotationSpeed = (Random.nextFloat() - 0.5f) * 10f
+            p.alpha = 1.0f
         }
-        particles = list
         isActive = true
+        frameTick++
     }
 
     fun update() {
         if (!isActive) return
         var allDead = true
-        particles = particles.map { p ->
-            val ny = p.y + p.vy
-            val nx = p.x + p.vx
-            val nvy = p.vy + 0.35f // Gravity
-            val nrot = p.rotation + p.rotationSpeed
-            val nalpha = (p.alpha - 0.005f).coerceAtLeast(0f)
+        for (p in particles) {
+            p.y += p.vy
+            p.x += p.vx
+            p.vy += 0.35f // Gravity
+            p.rotation += p.rotationSpeed
+            p.alpha = (p.alpha - 0.007f).coerceAtLeast(0f)
             
-            if (ny < 2200f && nalpha > 0f) allDead = false
-            p.copy(x = nx, y = ny, vy = nvy, rotation = nrot, alpha = nalpha)
+            if (p.y < 2200f && p.alpha > 0f) allDead = false
         }
         if (allDead) {
             isActive = false
-            particles = emptyList()
+        } else {
+            frameTick++
         }
     }
 }
@@ -183,7 +183,7 @@ fun MainHabitApp(viewModel: HabitViewModel) {
     // Handle back button on secondary screens
     BackHandler(enabled = pagerState.currentPage != 0) {
         coroutineScope.launch {
-            pagerState.animateScrollToPage(0, animationSpec = tween(350, easing = FastOutSlowInEasing))
+            pagerState.animateScrollToPage(0, animationSpec = tween(260, easing = FastOutSlowInEasing))
         }
     }
 
@@ -195,11 +195,11 @@ fun MainHabitApp(viewModel: HabitViewModel) {
     var habitToDelete by remember { mutableStateOf<Habit?>(null) }
     var quickReminderHabit by remember { mutableStateOf<Habit?>(null) }
 
-    // Confetti manager
+    // Confetti manager (zero-allocation physics loop)
     val confettiState = remember { ConfettiState() }
     
     if (confettiState.isActive) {
-        LaunchedEffect(Unit) {
+        LaunchedEffect(confettiState.isActive) {
             while (confettiState.isActive) {
                 withFrameNanos {
                     confettiState.update()
@@ -277,7 +277,7 @@ fun MainHabitApp(viewModel: HabitViewModel) {
                     onClick = {
                         if (pagerState.currentPage != 0) {
                             coroutineScope.launch {
-                                pagerState.animateScrollToPage(0, animationSpec = tween(350, easing = FastOutSlowInEasing))
+                                pagerState.animateScrollToPage(0, animationSpec = tween(260, easing = FastOutSlowInEasing))
                             }
                         }
                     },
@@ -290,7 +290,7 @@ fun MainHabitApp(viewModel: HabitViewModel) {
                     onClick = {
                         if (pagerState.currentPage != 1) {
                             coroutineScope.launch {
-                                pagerState.animateScrollToPage(1, animationSpec = tween(350, easing = FastOutSlowInEasing))
+                                pagerState.animateScrollToPage(1, animationSpec = tween(260, easing = FastOutSlowInEasing))
                             }
                         }
                     },
@@ -303,7 +303,7 @@ fun MainHabitApp(viewModel: HabitViewModel) {
                     onClick = {
                         if (pagerState.currentPage != 2) {
                             coroutineScope.launch {
-                                pagerState.animateScrollToPage(2, animationSpec = tween(350, easing = FastOutSlowInEasing))
+                                pagerState.animateScrollToPage(2, animationSpec = tween(260, easing = FastOutSlowInEasing))
                             }
                         }
                     },
@@ -345,14 +345,14 @@ fun MainHabitApp(viewModel: HabitViewModel) {
                 modifier = Modifier.fillMaxSize(),
                 beyondViewportPageCount = 1
             ) { page ->
-                val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
-                val absOffset = pageOffset.absoluteValue.coerceIn(0f, 1f)
-
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            // Depth and layering: subtle scale & alpha so adjacent screen is beautifully visible
+                            // Defer reading pager state to Draw phase so that Composition & Layout phases
+                            // are not re-triggered on every single pixel of scroll/swipe!
+                            val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+                            val absOffset = pageOffset.absoluteValue.coerceIn(0f, 1f)
                             val scale = 1f - (absOffset * 0.04f)
                             scaleX = scale
                             scaleY = scale
@@ -411,17 +411,26 @@ fun MainHabitApp(viewModel: HabitViewModel) {
                 }
             }
 
-            // Confetti Overlay Layer
+            // Confetti Overlay Layer (Hardware-accelerated, zero-allocation loop)
             if (confettiState.isActive) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    confettiState.particles.forEach { p ->
-                        val sizeRaw = p.size
-                        rotate(p.rotation, pivot = Offset(p.x, p.y)) {
-                            drawRect(
-                                color = p.color.copy(alpha = p.alpha),
-                                topLeft = Offset(p.x - sizeRaw / 2, p.y - sizeRaw / 2),
-                                size = Size(sizeRaw, sizeRaw)
-                            )
+                val tick = confettiState.frameTick
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer() // Isolate canvas to its own GPU render node
+                ) {
+                    if (tick >= 0) {
+                        for (p in confettiState.particles) {
+                            if (p.alpha > 0.01f) {
+                                val sizeRaw = p.size
+                                rotate(p.rotation, pivot = Offset(p.x, p.y)) {
+                                    drawRect(
+                                        color = p.color.copy(alpha = p.alpha),
+                                        topLeft = Offset(p.x - sizeRaw / 2, p.y - sizeRaw / 2),
+                                        size = Size(sizeRaw, sizeRaw)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -554,7 +563,11 @@ fun HabitsTabContent(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp)
         ) {
-            items(habits, key = { it.habit.id }) { item ->
+            items(
+                items = habits,
+                key = { it.habit.id },
+                contentType = { "habit_card" }
+            ) { item ->
                 HabitCardItem(
                     item = item,
                     onToggle = { checked -> onToggle(item, checked) },
@@ -1351,7 +1364,11 @@ fun ArchiveTabContent(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp)
         ) {
-            items(archivedHabits, key = { it.habit.id }) { item ->
+            items(
+                items = archivedHabits,
+                key = { it.habit.id },
+                contentType = { "archived_habit_card" }
+            ) { item ->
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
