@@ -114,18 +114,19 @@ class HabitReminderReceiver : BroadcastReceiver() {
 
     private fun showNotification(context: Context, notificationId: Int, title: String, content: String) {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channelId = "habit_reminder_channel_v2"
+        val channelId = "habit_reminder_channel_exact_v1"
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
-                "Напоминания о привычках",
+                "Точные напоминания о привычках",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Точные уведомления о привычках"
+                description = "Гарантированные напоминания о привычках минута в минуту"
                 enableVibration(true)
-                vibrationPattern = longArrayOf(0, 350, 200, 350)
+                vibrationPattern = longArrayOf(0, 400, 200, 400)
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                enableLights(true)
             }
             notificationManager.createNotificationChannel(channel)
         }
@@ -147,10 +148,11 @@ class HabitReminderReceiver : BroadcastReceiver() {
             .setStyle(NotificationCompat.BigTextStyle().bigText(content))
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setFullScreenIntent(pendingIntent, false) // Displays high priority Heads-Up banner
             .build()
 
         notificationManager.notify(notificationId, notification)
@@ -171,25 +173,54 @@ class HabitReminderReceiver : BroadcastReceiver() {
                 return
             }
 
+            // Priority 1: System AlarmClock (setAlarmClock guarantees minute-by-minute exact wakeups even in deep Doze)
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    if (alarmManager.canScheduleExactAlarms()) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    val canExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        alarmManager.canScheduleExactAlarms()
+                    } else {
+                        true
+                    }
+
+                    if (canExact) {
+                        val showIntent = Intent(context, MainActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        }
+                        val showPendingIntent = PendingIntent.getActivity(
+                            context,
+                            pendingIntent.hashCode(),
+                            showIntent,
+                            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                        )
+                        val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerAtMillis, showPendingIntent)
+                        alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
+                        Log.d("HabitReminder", "Exact alarm scheduled via setAlarmClock at millis: $triggerAtMillis (delay: $delayMillis ms)")
+                        return
+                    }
+                }
+            } catch (e: SecurityException) {
+                Log.w("HabitReminder", "SecurityException on setAlarmClock, falling back to setExactAndAllowWhileIdle", e)
+            } catch (e: Exception) {
+                Log.w("HabitReminder", "Exception on setAlarmClock, falling back", e)
+            }
+
+            // Priority 2: setExactAndAllowWhileIdle
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    val canExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        alarmManager.canScheduleExactAlarms()
+                    } else {
+                        true
+                    }
+                    if (canExact) {
                         alarmManager.setExactAndAllowWhileIdle(
                             AlarmManager.RTC_WAKEUP,
                             triggerAtMillis,
                             pendingIntent
                         )
-                        Log.d("HabitReminder", "Exact alarm scheduled via RTC_WAKEUP at millis: $triggerAtMillis (delay: $delayMillis ms)")
+                        Log.d("HabitReminder", "Exact alarm scheduled via setExactAndAllowWhileIdle at millis: $triggerAtMillis (delay: $delayMillis ms)")
                         return
                     }
-                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    alarmManager.setExactAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP,
-                        triggerAtMillis,
-                        pendingIntent
-                    )
-                    Log.d("HabitReminder", "Exact alarm scheduled via RTC_WAKEUP at millis: $triggerAtMillis (delay: $delayMillis ms)")
-                    return
                 } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
                     alarmManager.setExact(
                         AlarmManager.RTC_WAKEUP,
@@ -200,7 +231,9 @@ class HabitReminderReceiver : BroadcastReceiver() {
                     return
                 }
             } catch (e: SecurityException) {
-                Log.w("HabitReminder", "SecurityException scheduling exact alarm, attempting fallback", e)
+                Log.w("HabitReminder", "SecurityException on setExactAndAllowWhileIdle, falling back", e)
+            } catch (e: Exception) {
+                Log.w("HabitReminder", "Exception on setExactAndAllowWhileIdle", e)
             }
 
             // Fallback if exact alarms are restricted
@@ -218,7 +251,7 @@ class HabitReminderReceiver : BroadcastReceiver() {
                         pendingIntent
                     )
                 }
-                Log.d("HabitReminder", "Fallback alarm scheduled at millis: $triggerAtMillis")
+                Log.d("HabitReminder", "Fallback inexact alarm scheduled at millis: $triggerAtMillis")
             } catch (e: Exception) {
                 Log.e("HabitReminder", "Failed to set alarm", e)
             }
@@ -331,49 +364,70 @@ class HabitReminderReceiver : BroadcastReceiver() {
                 return
             }
 
+            // Active days of week: 1 (Mon) .. 7 (Sun)
+            val activeDays = if (habit.frequency == "DAILY") {
+                (1..7).toSet()
+            } else {
+                habit.targetDays.split(",").mapNotNull { it.trim().toIntOrNull() }.toSet().ifEmpty { (1..7).toSet() }
+            }
+
             val today = LocalDate.now()
-            val initialDate = habit.startDate?.let {
+            val startDate = habit.startDate?.let {
                 try {
                     val parsed = LocalDate.parse(it)
                     if (parsed.isAfter(today)) parsed else today
                 } catch (e: Exception) { today }
             } ?: today
 
-            val calendar = Calendar.getInstance().apply {
-                timeInMillis = System.currentTimeMillis()
-                set(Calendar.YEAR, initialDate.year)
-                set(Calendar.MONTH, initialDate.monthValue - 1)
-                set(Calendar.DAY_OF_MONTH, initialDate.dayOfMonth)
-                set(Calendar.HOUR_OF_DAY, habit.notifyHour)
-                set(Calendar.MINUTE, habit.notifyMinute)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-                
-                if (timeInMillis <= System.currentTimeMillis()) {
-                    add(Calendar.DAY_OF_MONTH, 1)
+            val nowMillis = System.currentTimeMillis()
+            var triggerCalendar: Calendar? = null
+            var candidateDate = startDate
+
+            // Look forward up to 14 days to find the next active day whose scheduled time is in the future
+            for (offset in 0..14) {
+                val testDate = startDate.plusDays(offset.toLong())
+                val dayOfWeek = testDate.dayOfWeek.value // 1..7
+                if (activeDays.contains(dayOfWeek)) {
+                    val cal = Calendar.getInstance().apply {
+                        timeInMillis = nowMillis
+                        set(Calendar.YEAR, testDate.year)
+                        set(Calendar.MONTH, testDate.monthValue - 1)
+                        set(Calendar.DAY_OF_MONTH, testDate.dayOfMonth)
+                        set(Calendar.HOUR_OF_DAY, habit.notifyHour)
+                        set(Calendar.MINUTE, habit.notifyMinute)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }
+
+                    // Must be at least 3 seconds in the future to avoid clock jitter re-trigger
+                    if (cal.timeInMillis > nowMillis + 3000L) {
+                        triggerCalendar = cal
+                        candidateDate = testDate
+                        break
+                    }
                 }
             }
 
-            val alarmDate = LocalDate.of(
-                calendar.get(Calendar.YEAR),
-                calendar.get(Calendar.MONTH) + 1,
-                calendar.get(Calendar.DAY_OF_MONTH)
-            )
+            if (triggerCalendar == null) {
+                Log.w("HabitReminder", "Could not find valid next trigger date for habit ${habit.id}")
+                return
+            }
+
             val isPastEndDate = habit.endDate?.let { endStr ->
                 try {
-                    alarmDate.isAfter(LocalDate.parse(endStr))
+                    candidateDate.isAfter(LocalDate.parse(endStr))
                 } catch (e: Exception) { false }
             } ?: false
 
             if (isPastEndDate) {
                 alarmManager.cancel(pendingIntent)
-                Log.d("HabitReminder", "Habit ${habit.id} alarm date $alarmDate is past end date ${habit.endDate}, cancelled.")
+                Log.d("HabitReminder", "Habit ${habit.id} alarm date $candidateDate is past end date ${habit.endDate}, cancelled.")
                 return
             }
 
             try {
-                setExactAlarm(context, alarmManager, calendar.timeInMillis, pendingIntent)
-                Log.d("HabitReminder", "Scheduled exact alarm for habit ${habit.id} (${habit.name}) at ${habit.notifyHour}:${habit.notifyMinute}")
+                setExactAlarm(context, alarmManager, triggerCalendar.timeInMillis, pendingIntent)
+                Log.d("HabitReminder", "Scheduled exact alarm for habit ${habit.id} (${habit.name}) on $candidateDate at ${habit.notifyHour}:${habit.notifyMinute}")
             } catch (e: Exception) {
                 Log.e("HabitReminder", "Failed to schedule Alarm for habit ${habit.id}", e)
             }

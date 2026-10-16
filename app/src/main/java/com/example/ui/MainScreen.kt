@@ -1537,6 +1537,115 @@ fun SettingsDialog(
                     }
                 }
 
+                HorizontalDivider()
+
+                // Notification Accuracy Card
+                Text(
+                    text = "Точность напоминаний",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+
+                val settingsContext = LocalContext.current
+                val canExactAlarms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val alarmManager = settingsContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                    alarmManager.canScheduleExactAlarms()
+                } else {
+                    true
+                }
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (canExactAlarms) {
+                            if (isDarkTheme) Color(0xFF162D1F) else Color(0xFFE8F5E9)
+                        } else {
+                            if (isDarkTheme) Color(0xFF332014) else Color(0xFFFFF3E0)
+                        }
+                    ),
+                    border = BorderStroke(
+                        1.dp,
+                        if (canExactAlarms) {
+                            if (isDarkTheme) Color(0xFF2E7D32).copy(alpha = 0.5f) else Color(0xFFA5D6A7)
+                        } else {
+                            if (isDarkTheme) Color(0xFFEF6C00).copy(alpha = 0.5f) else Color(0xFFFFCC80)
+                        }
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (canExactAlarms) Icons.Default.CheckCircle else Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = if (canExactAlarms) Color(0xFF2E7D32) else Color(0xFFE65100),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (canExactAlarms) "Доставка минута в минуту активна" else "Требуется системное разрешение",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (canExactAlarms) {
+                                    if (isDarkTheme) Color(0xFFA5D6A7) else Color(0xFF1B5E20)
+                                } else {
+                                    if (isDarkTheme) Color(0xFFFFCC80) else Color(0xFFE65100)
+                                }
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (canExactAlarms) {
+                                "Используется системный режим будильника. Уведомления приходят строго в заданную минуту даже при глубоком сне устройства."
+                            } else {
+                                "Для гарантированной доставки напоминаний в точную минуту разрешите показ точных будильников в настройках Android."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedButton(
+                            onClick = {
+                                try {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                        val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                            data = Uri.parse("package:${settingsContext.packageName}")
+                                        }
+                                        settingsContext.startActivity(intent)
+                                    } else {
+                                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            data = Uri.parse("package:${settingsContext.packageName}")
+                                        }
+                                        settingsContext.startActivity(intent)
+                                    }
+                                } catch (e: Exception) {
+                                    try {
+                                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            data = Uri.parse("package:${settingsContext.packageName}")
+                                        }
+                                        settingsContext.startActivity(intent)
+                                    } catch (ex: Exception) {
+                                        Log.e("HabitTracker", "Cannot open settings", ex)
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.NotificationsActive,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (canExactAlarms) "Настройки уведомлений системы" else "Включить точные напоминания",
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    }
+                }
+
                 // App Info
                 Row(
                     modifier = Modifier
